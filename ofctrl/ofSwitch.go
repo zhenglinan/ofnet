@@ -28,6 +28,10 @@ import (
 	cmap "github.com/streamrail/concurrent-map"
 )
 
+var	(
+	heartbeatInterval, _ = time.ParseDuration("3s")
+)
+
 type OFSwitch struct {
 	stream *util.MessageStream
 	dpid   net.HardwareAddr
@@ -45,6 +49,8 @@ type OFSwitch struct {
 	retry          chan bool // Channel to notify controller reconnect switch
 	mQueue         chan *openflow13.MultipartRequest
 	monitorEnabled bool
+	lastUpdate     time.Time // time at that receiving the last EchoReply
+	heartbeatCh    chan struct{}
 }
 
 var switchDb cmap.ConcurrentMap
@@ -137,16 +143,30 @@ func (self *OFSwitch) switchConnected() {
 	// Send new feature request
 	self.Send(openflow13.NewFeaturesRequest())
 
-	// FIXME: This is too fragile. Create a periodic timer
-	// Start the periodic echo request loop
 	self.Send(openflow13.NewEchoRequest())
+
+	self.heartbeatCh = make(chan struct{})
+	go func() {
+		timer := time.NewTicker(heartbeatInterval)
+		defer timer.Stop()
+		for {
+			select {
+				case <-timer.C:
+					self.Send(openflow13.NewEchoRequest())
+				case <-self.heartbeatCh:
+					break
+			}
+		}
+	}()
+
 }
 
 // Handle switch disconnected event
 func (self *OFSwitch) switchDisconnected() {
 	self.changeStatus(false)
-	self.app.SwitchDisconnected(self)
+	self.heartbeatCh <- struct{}{}
 	switchDb.Remove(self.DPID().String())
+	self.app.SwitchDisconnected(self)
 	if self.retry != nil {
 		self.retry <- true
 	}
@@ -191,17 +211,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 			self.Send(res)
 
 		case openflow13.Type_EchoReply:
-
-			// FIXME: This is too fragile. Create a periodic timer
-			// Wait three seconds then send an echo_request message.
-			go func() {
-				<-time.After(time.Second * 3)
-
-				// Send echo request
-				res := openflow13.NewEchoRequest()
-				self.Send(res)
-			}()
-			self.changeStatus(true)
+			self.lastUpdate = time.Now()
 
 		case openflow13.Type_FeaturesRequest:
 
@@ -287,7 +297,6 @@ func (self *OFSwitch) EnableMonitor() {
 }
 
 func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *FlowMatch, tableID *uint8) []*openflow13.FlowStats {
-	start := time.Now()
 	mp := self.getMPReq()
 	replyChan := make(chan *openflow13.MultipartReply)
 	go func() {
@@ -302,7 +311,7 @@ func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *Flow
 		if cookieMask > 0 {
 			flowMonitorReq.CookieMask = cookieMask
 		} else {
-			flowMonitorReq.CookieMask = uint64(0xffffffffffffffff)
+			flowMonitorReq.CookieMask = ^uint64(0)
 		}
 		if flowMatch != nil {
 			f := &Flow{Match: *flowMatch}
@@ -315,8 +324,6 @@ func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *Flow
 
 	reply := <-replyChan
 	flowStates := make([]*openflow13.FlowStats, 0)
-	delta := time.Now().Sub(start).Nanoseconds()
-	log.Infof("time diff: %d", (delta / 1000))
 	if reply.Type == openflow13.MultipartType_Flow {
 		flowArr := reply.Body
 		for _, entry := range flowArr {
@@ -328,26 +335,5 @@ func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *Flow
 }
 
 func (self *OFSwitch) CheckStatus(timeout time.Duration) bool {
-	// Send echo request
-	self.changeStatus(false)
-	ch := make(chan bool)
-	go func() {
-		res := openflow13.NewEchoRequest()
-		self.Send(res)
-		for {
-			if self.IsReady() {
-				ch <- true
-				return
-			} else {
-				time.Sleep(50 * time.Millisecond)
-			}
-		}
-	}()
-	select {
-	case status := <-ch:
-		log.Info("Connection status is ", status)
-		return status
-	case <-time.After(timeout * time.Second):
-		return false
-	}
+	return self.lastUpdate.Add(heartbeatInterval).After(time.Now())
 }
