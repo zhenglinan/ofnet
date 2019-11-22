@@ -28,7 +28,7 @@ import (
 	cmap "github.com/streamrail/concurrent-map"
 )
 
-var	(
+var (
 	heartbeatInterval, _ = time.ParseDuration("3s")
 )
 
@@ -151,10 +151,10 @@ func (self *OFSwitch) switchConnected() {
 		defer timer.Stop()
 		for {
 			select {
-				case <-timer.C:
-					self.Send(openflow13.NewEchoRequest())
-				case <-self.heartbeatCh:
-					break
+			case <-timer.C:
+				self.Send(openflow13.NewEchoRequest())
+			case <-self.heartbeatCh:
+				break
 			}
 		}
 	}()

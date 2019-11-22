@@ -16,6 +16,7 @@ package ofctrl
 
 import (
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"os"
 	"os/exec"
@@ -32,8 +33,9 @@ type OfActor struct {
 	Switch            *OFSwitch
 	isSwitchConnected bool
 
-	inputTable *Table
-	nextTable  *Table
+	inputTable     *Table
+	nextTable      *Table
+	connectedCount int
 }
 
 func (o *OfActor) PacketRcvd(sw *OFSwitch, packet *PacketIn) {
@@ -47,6 +49,7 @@ func (o *OfActor) SwitchConnected(sw *OFSwitch) {
 	o.Switch = sw
 
 	o.isSwitchConnected = true
+	o.connectedCount += 1
 }
 
 func (o *OfActor) MultipartReply(sw *OFSwitch, rep *openflow13.MultipartReply) {
@@ -138,7 +141,7 @@ func TestMain(m *testing.M) {
 	// Create a controller
 	ctrler = NewController(&ofActor)
 	ofActor2 = OfActor{}
-	ctrler2 = NewControllerAsOFClient(&ofActor2)
+	ctrler2 = NewController(&ofActor2)
 
 	// start listening
 	go ctrler.Listen(":6733")
@@ -777,6 +780,24 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 	}
 }
 
+func TestReconnectOFSwitch(t *testing.T) {
+	assert.Equal(t, ofActor2.connectedCount, 1)
+	log.Info("After send flow to channel.")
+	go func() {
+		ovsDriver2.DeleteBridge("ovsbr12")
+		time.Sleep(4 * time.Second)
+		ovsDriver2 = ovsdbDriver.NewOvsDriver("ovsbr12")
+	}()
+	ch := make(chan struct{})
+	go func() {
+		time.Sleep(10 * time.Second)
+		ch <- struct{}{}
+	}()
+
+	<-ch
+	assert.Equal(t, ofActor2.connectedCount, 2)
+}
+
 // Test Nicira extensions for match field and actions
 func TestNXExtension(t *testing.T) {
 	testNXExtensionsWithOFApplication(ofActor, ovsDriver, t)
@@ -787,7 +808,6 @@ func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *ovsdbDriver.OvsDriv
 	log.Infof("Enable monitor flows on table %d", ofApp.inputTable.TableId)
 	ofApp.Switch.EnableMonitor()
 
-	log.Info("***************** Add flows *****************")
 	// Test action: load mac to src mac
 	brName := ovsBr.OvsBridgeName
 	srcMac1, _ := net.ParseMAC("11:11:11:11:11:11")

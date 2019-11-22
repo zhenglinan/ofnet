@@ -89,22 +89,6 @@ func NewController(app AppInterface) *Controller {
 	return c
 }
 
-// Create a new controller
-func NewControllerAsOFClient(app AppInterface) *Controller {
-	c := new(Controller)
-	c.connectMode = ClientMode
-	// Construct stop flag
-	c.stopFlag = make(chan bool)
-	c.disconFlag = make(chan bool)
-
-	// for debug logs
-	// log.SetLevel(log.DebugLevel)
-
-	// Save the handler
-	c.app = app
-	return c
-}
-
 // Listen on a port
 func (c *Controller) Listen(port string) {
 	addr, _ := net.ResolveTCPAddr("tcp", port)
@@ -168,7 +152,7 @@ func (c *Controller) Connect(sock string) error {
 			if disConnection == false {
 				continue
 			}
-			log.Debugf("%s is disconnected, connecting...", sock)
+			log.Infof("%s is disconnected, connecting...", sock)
 
 			if conn != nil {
 				// Try to close existent connection
@@ -178,9 +162,9 @@ func (c *Controller) Connect(sock string) error {
 			// try to reconnect to the switch if there is error
 			var maxRetry = maxRetryForConnection
 			var retryInterval = 1 * time.Second
-			if _, ok := c.app.(ConnectionRetryControl); ok {
-				maxRetry = c.app.(ConnectionRetryControl).MaxRetry()
-				retryInterval = c.app.(ConnectionRetryControl).RetryInterval()
+			if retryController, ok := c.app.(ConnectionRetryControl); ok {
+				maxRetry = retryController.MaxRetry()
+				retryInterval = retryController.RetryInterval()
 			}
 			for i := 0; i < maxRetry; i++ {
 				conn, err = net.Dial("unix", sock)
@@ -216,9 +200,9 @@ func (c *Controller) Delete() {
 
 // Handle TCP connection from the switch
 func (c *Controller) handleConnection(conn net.Conn) {
-	var disconnected = false
+	var anormalQuit = false
 	defer func() {
-		c.disconFlag <- disconnected
+		c.disconFlag <- anormalQuit
 	}()
 
 	defer c.wg.Done()
@@ -283,14 +267,14 @@ func (c *Controller) handleConnection(conn net.Conn) {
 		case err := <-stream.Error:
 			// The connection has been shutdown.
 			log.Println(err)
-			disconnected = true
+			anormalQuit = true
 			return
-		case <-time.After(time.Second * 3):
+		case <-time.After(heartbeatInterval):
 			// This shouldn't happen. If it does, both the controller
 			// and switch are no longer communicating. The TCPConn is
 			// still established though.
 			log.Warnln("Connection timed out.")
-			disconnected = true
+			anormalQuit = true
 			return
 		}
 	}
