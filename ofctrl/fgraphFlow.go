@@ -837,7 +837,7 @@ func (self *Flow) install() error {
 	if !self.isInstalled {
 		flowMod.Command = openflow13.FC_ADD
 	} else {
-		flowMod.Command = openflow13.FC_MODIFY
+		flowMod.Command = openflow13.FC_MODIFY_STRICT
 	}
 
 	// convert match fields to openflow 1.3 format
@@ -1477,7 +1477,7 @@ func (self *Flow) Delete() error {
 	if self.isInstalled {
 		// Create a flowmode entry
 		flowMod := openflow13.NewFlowMod()
-		flowMod.Command = openflow13.FC_DELETE
+		flowMod.Command = openflow13.FC_DELETE_STRICT
 		flowMod.TableId = self.Table.TableId
 		flowMod.Priority = self.Match.Priority
 		flowMod.Cookie = self.CookieID
