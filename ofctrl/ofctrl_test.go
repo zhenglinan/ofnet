@@ -159,7 +159,7 @@ func TestMain(m *testing.M) {
 	ovsDriver2 = ovsdbDriver.NewOvsDriver("ovsbr12")
 	//wait for 2sec and see if ovs br created
 	time.Sleep(2 * time.Second)
-	go ctrler2.Connect("/var/run/openvswitch/ovsbr12.mgmt")
+	go ctrler2.Connect(fmt.Sprintf(defaultOVSDBAddressFormat, "ovsbr12"))
 
 	//wait for 10sec and see if switch connects
 	time.Sleep(8 * time.Second)
@@ -814,7 +814,7 @@ func TestReconnectOFSwitch(t *testing.T) {
 func prepareContollerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, brName string) (ovsBr *ovsdbDriver.OvsDriver) {
 	// Create ovs bridge and connect clientMode Controller to it
 	ovsBr = ovsdbDriver.NewOvsDriver(brName)
-	go ctrl.Connect(fmt.Sprintf("/var/run/openvswitch/%s.mgmt", brName))
+	go ctrl.Connect(fmt.Sprintf(defaultOVSDBAddressFormat, brName))
 
 	time.Sleep(2 * time.Second)
 	setOfTables(t, app, brName)
