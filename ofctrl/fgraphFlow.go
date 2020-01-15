@@ -23,8 +23,8 @@ import (
 	"net"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/contiv/libOpenflow/openflow13"
+	log "github.com/sirupsen/logrus"
 )
 
 // Small subset of openflow fields we currently support

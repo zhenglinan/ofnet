@@ -23,9 +23,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/contiv/libOpenflow/openflow13"
-	"github.com/contiv/ofnet/ovsdbDriver"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,12 +62,12 @@ func (o *OfActor) SwitchDisconnected(sw *OFSwitch) {
 
 var ofActor OfActor
 var ctrler *Controller
-var ovsDriver *ovsdbDriver.OvsDriver
+var ovsDriver *OvsDriver
 
 // Controller/Application/ovsBr work on clientMode
 var ofActor2 OfActor
 var ctrler2 *Controller
-var ovsDriver2 *ovsdbDriver.OvsDriver
+var ovsDriver2 *OvsDriver
 
 // Run an ovs-ofctl command
 func runOfctlCmd(cmd, brName string) ([]byte, error) {
@@ -149,17 +148,17 @@ func TestMain(m *testing.M) {
 	go ctrler.Listen(":6733")
 
 	// Connect to ovsdb and add the controller
-	ovsDriver = ovsdbDriver.NewOvsDriver("ovsbr11")
+	ovsDriver = NewOvsDriver("ovsbr11")
 	err := ovsDriver.AddController("127.0.0.1", 6733)
 	if err != nil {
 		log.Fatalf("Error adding controller to ovs")
 	}
 
 	// Create ovs bridge and connect clientMode Controller to it
-	ovsDriver2 = ovsdbDriver.NewOvsDriver("ovsbr12")
+	ovsDriver2 = NewOvsDriver("ovsbr12")
 	//wait for 2sec and see if ovs br created
 	time.Sleep(2 * time.Second)
-	go ctrler2.Connect(fmt.Sprintf(defaultOVSDBAddressFormat, "ovsbr12"))
+	go ctrler2.Connect("/var/run/openvswitch/ovsbr12.mgmt")
 
 	//wait for 10sec and see if switch connects
 	time.Sleep(8 * time.Second)
@@ -799,7 +798,7 @@ func TestReconnectOFSwitch(t *testing.T) {
 	go func() {
 		ovsBr.DeleteBridge(brName)
 		time.Sleep(2 * time.Second)
-		ovsBr = ovsdbDriver.NewOvsDriver(brName)
+		ovsBr = NewOvsDriver(brName)
 	}()
 	ch := make(chan struct{})
 	go func() {
@@ -811,10 +810,10 @@ func TestReconnectOFSwitch(t *testing.T) {
 	assert.Equal(t, 2, app.connectedCount)
 }
 
-func prepareContollerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, brName string) (ovsBr *ovsdbDriver.OvsDriver) {
+func prepareContollerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, brName string) (ovsBr *OvsDriver) {
 	// Create ovs bridge and connect clientMode Controller to it
-	ovsBr = ovsdbDriver.NewOvsDriver(brName)
-	go ctrl.Connect(fmt.Sprintf(defaultOVSDBAddressFormat, brName))
+	ovsBr = NewOvsDriver(brName)
+	go ctrl.Connect(fmt.Sprintf("/var/run/openvswitch/%s.mgmt", brName))
 
 	time.Sleep(2 * time.Second)
 	setOfTables(t, app, brName)
@@ -934,7 +933,7 @@ func TestNXExtension(t *testing.T) {
 	testNXExtensionsWithOFApplication(ofActor2, ovsDriver2, t)
 }
 
-func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *ovsdbDriver.OvsDriver, t *testing.T) {
+func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
 	// Test action: load mac to src mac
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
