@@ -124,7 +124,8 @@ func (c *Controller) Listen(port string) {
 
 }
 
-// Connect to Unix Domain Socket file
+// Linux: Connect to Unix Domain Socket file
+// Windows: Connect to named pipe
 func (c *Controller) Connect(sock string) error {
 	if c.connCh == nil {
 		// Construct stop flag for notifying controller to stop connections
@@ -173,7 +174,9 @@ func (c *Controller) Connect(sock string) error {
 
 				// Retry to connect to the switch if hit error
 				for i := 0; i < maxRetry; i++ {
-					conn, err = net.Dial("unix", sock)
+					// Linux: Connect to Unix Domain Socket file
+					// Windows: Connect to named pipe
+					conn, err = DialUnixOrNamedPipe(sock)
 					if err != nil {
 						log.Errorf("Failed to connect to %s: %v, retry after 1 second.", sock, err)
 						time.Sleep(retryInterval)
