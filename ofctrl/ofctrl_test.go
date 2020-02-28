@@ -1124,6 +1124,23 @@ func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testi
 		"priority=100,ip,in_port=8",
 		"ct(commit,table=1,zone=65281,exec(load:0xf009->NXM_NX_CT_MARK[])),goto_table:1")
 
+	// Test action: ct(table=1,zone=0xff01,nat)
+	flow80, err := ofApp.inputTable.NewFlow(FlowMatch{
+		Priority:  100,
+		Ethertype: 0x0800,
+		InputPort: inPort6,
+	})
+	if err != nil {
+		t.Fatalf("Failed to generate flow: %+v", flow80)
+	}
+	natAction0 := openflow13.NewNXActionCTNAT()
+	err = flow80.ConnTrack(false, false, &ctTable, &ctZone, natAction0)
+	if err != nil {
+		t.Errorf("Failed to apply ct action: %+v", err)
+	}
+	verifyFlowInstallAndDelete(t, flow80, ofApp.nextTable, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,in_port=8",
+		"ct(table=1,zone=65281,nat),goto_table:1")
 	// Test action: dec_ttl
 	inPort7 := uint32(9)
 	flow9, err := ofApp.inputTable.NewFlow(FlowMatch{

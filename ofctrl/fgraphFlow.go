@@ -937,7 +937,9 @@ func (self *Flow) install() error {
 	log.Debugf("Sending flowmod: %+v", flowMod)
 
 	// Send the message
-	self.Table.Switch.Send(flowMod)
+	if err := self.Table.Switch.Send(flowMod); err != nil {
+		return err
+	}
 
 	// Mark it as installed
 	self.isInstalled = true
@@ -959,8 +961,7 @@ func (self *Flow) Send(operationType int) error {
 		return err
 	}
 	// Send the message
-	self.Table.Switch.Send(flowMod)
-	return nil
+	return self.Table.Switch.Send(flowMod)
 }
 
 // Set Next element in the Fgraph. This determines what actions will be
@@ -1513,7 +1514,9 @@ func (self *Flow) Delete() error {
 		log.Debugf("Sending DELETE flowmod: %+v", flowMod)
 
 		// Send the message
-		self.Table.Switch.Send(flowMod)
+		if err := self.Table.Switch.Send(flowMod); err != nil {
+			return err
+		}
 	}
 
 	// Delete it from the table

@@ -29,6 +29,10 @@ import (
 	cmap "github.com/streamrail/concurrent-map"
 )
 
+const (
+	messageTimeout = 10 * time.Second
+)
+
 var (
 	heartbeatInterval, _ = time.ParseDuration("3s")
 )
@@ -118,8 +122,20 @@ func (self *OFSwitch) DPID() net.HardwareAddr {
 }
 
 // Sends an OpenFlow message to this Switch.
-func (self *OFSwitch) Send(req util.Message) {
-	self.stream.Outbound <- req
+func (self *OFSwitch) Send(req util.Message) error {
+	ch := make(chan struct{})
+	go func() {
+		self.stream.Outbound <- req
+		ch <- struct{}{}
+	}()
+	var err error
+	select {
+	case <-time.After(messageTimeout):
+		err = fmt.Errorf("timeout to send message")
+	case <-ch:
+		break
+	}
+	return err
 }
 
 func (self *OFSwitch) Disconnect() {

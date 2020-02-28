@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/contiv/libOpenflow/openflow13"
 	"github.com/contiv/libOpenflow/util"
@@ -63,12 +64,19 @@ func (tx *Transaction) getError(reply MessageResult) error {
 func (tx *Transaction) sendControlRequest(xID uint32, msg util.Message) error {
 	tx.ofSwitch.subscribeMessage(xID, tx.controlReplyCh)
 	defer tx.ofSwitch.unSubscribeMessage(xID)
-	tx.ofSwitch.Send(msg)
-	reply := <-tx.controlReplyCh
-	if reply.IsSucceed() {
-		return nil
-	} else {
-		return tx.getError(reply)
+	if err := tx.ofSwitch.Send(msg); err != nil {
+		return err
+	}
+
+	select {
+	case reply := <-tx.controlReplyCh:
+		if reply.IsSucceed() {
+			return nil
+		} else {
+			return tx.getError(reply)
+		}
+	case <-time.After(messageTimeout):
+		return fmt.Errorf("timeout to wait for the reply of BundleControl message")
 	}
 }
 
@@ -129,8 +137,7 @@ func (tx *Transaction) AddFlow(flowMod *openflow13.FlowMod) error {
 	tx.lock.Lock()
 	tx.successAdd[message.Xid] = true
 	tx.lock.Unlock()
-	tx.ofSwitch.Send(message)
-	return nil
+	return tx.ofSwitch.Send(message)
 }
 
 // Complete closes the bundle configuration. It returns the number of successful messages added in the bundle.

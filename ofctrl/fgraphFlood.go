@@ -138,7 +138,9 @@ func (self *Flood) install() error {
 	log.Debugf("Installing Group entry: %+v", groupMod)
 
 	// Send it to the switch
-	self.Switch.Send(groupMod)
+	if err := self.Switch.Send(groupMod); err != nil {
+		return err
+	}
 
 	// Mark it as installed
 	self.isInstalled = true
@@ -157,7 +159,9 @@ func (self *Flood) Delete() error {
 		log.Debugf("Deleting Group entry: %+v", groupMod)
 
 		// Send it to the switch
-		self.Switch.Send(groupMod)
+		if err := self.Switch.Send(groupMod); err != nil {
+			return err
+		}
 	}
 
 	return nil

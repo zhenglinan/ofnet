@@ -74,7 +74,9 @@ func (self *Group) Install() error {
 	if self.isInstalled {
 		groupMod.Command = openflow13.OFPGC_MODIFY
 	}
-	self.Switch.Send(groupMod)
+	if err := self.Switch.Send(groupMod); err != nil {
+		return err
+	}
 
 	// Mark it as installed
 	self.isInstalled = true
@@ -87,7 +89,9 @@ func (self *Group) Delete() error {
 		groupMod := openflow13.NewGroupMod()
 		groupMod.GroupId = self.ID
 		groupMod.Command = openflow13.OFPGC_DELETE
-		self.Switch.Send(groupMod)
+		if err := self.Switch.Send(groupMod); err != nil {
+			return err
+		}
 		// Mark it as unInstalled
 		self.isInstalled = false
 	}
