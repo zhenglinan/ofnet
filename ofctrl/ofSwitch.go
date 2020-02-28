@@ -15,6 +15,7 @@ limitations under the License.
 package ofctrl
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -58,7 +59,9 @@ type OFSwitch struct {
 	heartbeatCh    chan struct{}
 	// map for receiving reply messages from OFSwitch. Key is Xid, and value is a chan created by request message sender.
 	txChans map[uint32]chan MessageResult
-	txLock  sync.Mutex // lock for txChans
+	txLock  sync.Mutex         // lock for txChans
+	ctx     context.Context    // ctx is used in the lifecycle of a connection
+	cancel  context.CancelFunc // cancel is used to cancel the proceeding OpenFlow message when OFSwitch is disconnected.
 }
 
 var switchDb cmap.ConcurrentMap
@@ -83,6 +86,9 @@ func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterfa
 		s.connCh = connCh
 		s.txChans = make(map[uint32]chan MessageResult)
 
+		// Prepare a context for current connection.
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+
 		// Initialize the fgraph elements
 		s.initFgraph()
 
@@ -94,12 +100,12 @@ func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterfa
 
 	} else {
 		log.Infoln("Openflow Connection for switch:", dpid)
-
 		s = getSwitch(dpid)
 		s.stream = stream
 		s.dpid = dpid
+		// Update context for the new connection.
+		s.ctx, s.cancel = context.WithCancel(context.Background())
 	}
-
 	// send Switch connected callback
 	s.switchConnected()
 
@@ -131,9 +137,11 @@ func (self *OFSwitch) Send(req util.Message) error {
 	var err error
 	select {
 	case <-time.After(messageTimeout):
-		err = fmt.Errorf("timeout to send message")
+		err = fmt.Errorf("message is timeout")
 	case <-ch:
 		break
+	case <-self.ctx.Done():
+		err = fmt.Errorf("message is canceled because of disconnection from the Switch")
 	}
 	return err
 }
@@ -184,6 +192,7 @@ func (self *OFSwitch) switchConnected() {
 // Handle switch disconnected event
 func (self *OFSwitch) switchDisconnected() {
 	self.changeStatus(false)
+	self.cancel()
 	self.heartbeatCh <- struct{}{}
 	switchDb.Remove(self.DPID().String())
 	self.app.SwitchDisconnected(self)

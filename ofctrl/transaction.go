@@ -76,7 +76,9 @@ func (tx *Transaction) sendControlRequest(xID uint32, msg util.Message) error {
 			return tx.getError(reply)
 		}
 	case <-time.After(messageTimeout):
-		return fmt.Errorf("timeout to wait for the reply of BundleControl message")
+		return fmt.Errorf("bundle reply is timeout")
+	case <-tx.ofSwitch.ctx.Done():
+		return fmt.Errorf("bundle reply is canceled because of disconnection from the Switch")
 	}
 }
 
