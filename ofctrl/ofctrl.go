@@ -17,6 +17,7 @@ package ofctrl
 // This library implements a simple openflow 1.3 controller
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -69,8 +70,7 @@ const (
 
 // Connection operation type
 const (
-	StopConnection = iota
-	InitConnection
+	InitConnection = iota
 	ReConnection
 	CompleteConnection
 )
@@ -80,7 +80,8 @@ type Controller struct {
 	listener    *net.TCPListener
 	wg          sync.WaitGroup
 	connectMode ConnectionMode
-	connCh      chan int // Channel to control the UDS connection between controller and OFSwitch
+	connCh      chan int      // Channel to control the UDS connection between controller and OFSwitch
+	exitCh      chan struct{} // Channel to stop the Controller
 }
 
 // Create a new controller
@@ -93,6 +94,7 @@ func NewController(app AppInterface) *Controller {
 
 	// Save the handler
 	c.app = app
+	c.exitCh = make(chan struct{})
 	return c
 }
 
@@ -140,7 +142,6 @@ func (c *Controller) Connect(sock string) error {
 	}
 
 	var conn net.Conn
-	var err error
 	defer func() {
 		if conn != nil {
 			conn.Close()
@@ -159,9 +160,6 @@ func (c *Controller) Connect(sock string) error {
 		select {
 		case connCtrl := <-c.connCh:
 			switch connCtrl {
-			case StopConnection:
-				log.Println("Controller is delete")
-				return nil
 			case InitConnection:
 				fallthrough
 			case ReConnection:
@@ -172,21 +170,13 @@ func (c *Controller) Connect(sock string) error {
 					_ = conn.Close()
 				}
 
-				// Retry to connect to the switch if hit error
-				for i := 0; i < maxRetry; i++ {
-					// Linux: Connect to Unix Domain Socket file
-					// Windows: Connect to named pipe
-					conn, err = DialUnixOrNamedPipe(sock)
-					if err != nil {
-						log.Errorf("Failed to connect to %s: %v, retry after 1 second.", sock, err)
-						time.Sleep(retryInterval)
-					} else {
-						break
-					}
-				}
+				// Retry to connect to the switch if hit error.
+				conn, err := c.getConnection(sock, maxRetry, retryInterval)
+
 				if err != nil {
 					return err
 				}
+				maxRetry = 0
 				c.wg.Add(1)
 				log.Printf("Connected to socket %s", sock)
 
@@ -194,9 +184,37 @@ func (c *Controller) Connect(sock string) error {
 			case CompleteConnection:
 				continue
 			}
+		case <-c.exitCh:
+			log.Println("Controller is delete")
+			return nil
 		}
 	}
+}
 
+func (c *Controller) getConnection(address string, maxRetry int, retryInterval time.Duration) (net.Conn, error) {
+	var count int
+	for {
+		select {
+		case <-time.After(retryInterval):
+			// Linux: Connect to Unix Domain Socket file
+			// Windows: Connect to named pipe
+			conn, err := DialUnixOrNamedPipe(address)
+			if err == nil {
+				return conn, nil
+			}
+			count++
+			// Check if the re-connection times come to the max value, if true, return the error.
+			// If it is required to re-connect until the Switch is connected, or the retry times it don't
+			// come the max value, continually retry.
+			if maxRetry > 0 && count == maxRetry {
+				return nil, err
+			}
+			log.Errorf("Failed to connect to %s, retry after %s: %v.", address, retryInterval.String(), err)
+		case <-c.exitCh:
+			log.Info("Controller is deleted, stop re-connections")
+			return nil, fmt.Errorf("controller is deleted, and connection is set as nil")
+		}
+	}
 }
 
 // Cleanup the controller
@@ -205,7 +223,7 @@ func (c *Controller) Delete() {
 		c.listener.Close()
 	} else if c.connectMode == ClientMode {
 		// Send signal to stop connections to the switch
-		c.connCh <- StopConnection
+		close(c.exitCh)
 	}
 	c.wg.Wait()
 	c.app = nil

@@ -781,6 +781,14 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 	}
 }
 
+func (o *OfActor) MaxRetry() int {
+	return 5
+}
+
+func (o *OfActor) RetryInterval() time.Duration {
+	return 1 * time.Second
+}
+
 func TestReconnectOFSwitch(t *testing.T) {
 	app := new(OfActor)
 	ctrl := NewController(app)
@@ -797,16 +805,17 @@ func TestReconnectOFSwitch(t *testing.T) {
 	assert.Equal(t, ofActor2.connectedCount, 1)
 	go func() {
 		ovsBr.DeleteBridge(brName)
-		time.Sleep(2 * time.Second)
-		ovsBr = NewOvsDriver(brName)
-	}()
-	ch := make(chan struct{})
-	go func() {
-		time.Sleep(5 * time.Second)
-		ch <- struct{}{}
+		select {
+		case <-time.After(10 * time.Second):
+			ovsBr = NewOvsDriver(brName)
+		}
 	}()
 
-	<-ch
+	ovsBr.DeleteBridge(brName)
+	select {
+	case <-time.After(15 * time.Second):
+		break
+	}
 	assert.Equal(t, 2, app.connectedCount)
 }
 
