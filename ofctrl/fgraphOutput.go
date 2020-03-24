@@ -55,7 +55,7 @@ func (self *Output) GetFlowInstr() openflow13.Instruction {
 }
 
 // Return an output action (Used by group mods)
-func (self *Output) GetOutAction() openflow13.Action {
+func (self *Output) GetActionMessage() openflow13.Action {
 	switch self.outputType {
 	case "drop":
 		return nil

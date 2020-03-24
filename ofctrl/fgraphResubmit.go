@@ -17,13 +17,13 @@ func (self *Resubmit) Type() string {
 // instruction set for resubmit element
 func (self *Resubmit) GetFlowInstr() openflow13.Instruction {
 	outputInstr := openflow13.NewInstrApplyActions()
-	resubmitAct := self.GetResubmitAction()
+	resubmitAct := self.GetActionMessage()
 	outputInstr.AddAction(resubmitAct, false)
 	return outputInstr
 }
 
 // Return a resubmit action (Used as a last action by flows in the table pipeline)
-func (self *Resubmit) GetResubmitAction() openflow13.Action {
+func (self *Resubmit) GetActionMessage() openflow13.Action {
 	return openflow13.NewNXActionResubmitTableAction(self.ofport, self.nextTable)
 }
 

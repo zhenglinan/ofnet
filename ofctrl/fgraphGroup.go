@@ -2,6 +2,7 @@ package ofctrl
 
 import (
 	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/contiv/libOpenflow/util"
 )
 
 type GroupType int
@@ -12,6 +13,15 @@ const (
 	GroupIndirect
 	GroupFF
 )
+
+type GroupBundleMessage struct {
+	message *openflow13.GroupMod
+}
+
+func (m *GroupBundleMessage) resetXid(xid uint32) util.Message {
+	m.message.Xid = xid
+	return m.message
+}
 
 type Group struct {
 	Switch      *OFSwitch
@@ -25,9 +35,13 @@ func (self *Group) Type() string {
 	return "group"
 }
 
+func (self *Group) GetActionMessage() openflow13.Action {
+	return openflow13.NewActionGroup(self.ID)
+}
+
 func (self *Group) GetFlowInstr() openflow13.Instruction {
 	groupInstr := openflow13.NewInstrApplyActions()
-	groupAct := openflow13.NewActionGroup(self.ID)
+	groupAct := self.GetActionMessage()
 	// Add group action to the instruction
 	groupInstr.AddAction(groupAct, false)
 	return groupInstr
@@ -52,6 +66,23 @@ func (self *Group) ResetBuckets(buckets ...*openflow13.Bucket) {
 }
 
 func (self *Group) Install() error {
+	command := openflow13.OFPGC_ADD
+	if self.isInstalled {
+		command = openflow13.OFPGC_MODIFY
+	}
+	groupMod := self.getGroupModMessage(command)
+
+	if err := self.Switch.Send(groupMod); err != nil {
+		return err
+	}
+
+	// Mark it as installed
+	self.isInstalled = true
+
+	return nil
+}
+
+func (self *Group) getGroupModMessage(command int) *openflow13.GroupMod {
 	groupMod := openflow13.NewGroupMod()
 	groupMod.GroupId = self.ID
 
@@ -70,18 +101,13 @@ func (self *Group) Install() error {
 		// Add the bucket to group
 		groupMod.AddBucket(*bkt)
 	}
+	groupMod.Command = uint16(command)
+	return groupMod
+}
 
-	if self.isInstalled {
-		groupMod.Command = openflow13.OFPGC_MODIFY
-	}
-	if err := self.Switch.Send(groupMod); err != nil {
-		return err
-	}
-
-	// Mark it as installed
-	self.isInstalled = true
-
-	return nil
+func (self *Group) GetBundleMessage(command int) *GroupBundleMessage {
+	groupMod := self.getGroupModMessage(command)
+	return &GroupBundleMessage{groupMod}
 }
 
 func (self *Group) Delete() error {

@@ -6,7 +6,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.14
 	github.com/cenkalti/hub v1.0.1-0.20140529221144-7be60e186e66 // indirect
 	github.com/cenkalti/rpc2 v0.0.0-20140912135055-44d0d95e4f52 // indirect
-	github.com/contiv/libOpenflow v0.0.0-20200115035645-b22edc53818e
+	github.com/contiv/libOpenflow v0.0.0-20200319171453-882ba6d92cbc
 	github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/sirupsen/logrus v1.4.1

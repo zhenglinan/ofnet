@@ -2,7 +2,7 @@ package ofctrl
 
 // The work flow to use transaction for sending multiple Openflow messages should be:
 // NewTransaction->Begin->AddFlow->Complete->Commit. Client could cancel the messages by calling Abort after the
-// transaction is complete and not commit.
+// transaction is complete and not Commit.
 
 import (
 	"fmt"
@@ -26,6 +26,10 @@ const (
 )
 
 var uid uint32
+
+type OpenFlowModMessage interface {
+	resetXid(xid uint32) util.Message
+}
 
 type Transaction struct {
 	ofSwitch       *OFSwitch
@@ -55,7 +59,7 @@ func (self *OFSwitch) NewTransaction(flag TransactionType) *Transaction {
 func (tx *Transaction) getError(reply MessageResult) error {
 	errType := reply.GetErrorType()
 	errCode := reply.GetErrorCode()
-	if errType == openflow13.ET_EXPERIMENTER && errCode >= openflow13.BFC_UNKNOWN && errCode <= openflow13.BFC_BUNDLE_IN_PROCESS {
+	if errType == openflow13.ET_EXPERIMENTER && errCode >= openflow13.BEC_UNKNOWN && errCode <= openflow13.BEC_BUNDLE_IN_PROCESS {
 		return openflow13.ParseBundleError(reply.GetErrorCode())
 	}
 	return fmt.Errorf("unsupported bundle error with type %d and code %d", errType, errCode)
@@ -90,7 +94,15 @@ func (tx *Transaction) newBundleControlMessage(msgType uint16) *openflow13.Bundl
 	return message
 }
 
-func (tx *Transaction) createBundleAddMessage(flowMod *openflow13.FlowMod) (*openflow13.BundleAdd, error) {
+func (tx *Transaction) createBundleAddMessage(mod OpenFlowModMessage) (*openflow13.BundleAdd, error) {
+	message := openflow13.NewBundleAdd()
+	message.BundleID = tx.ID
+	message.Flags = tx.flag.getValue()
+	message.Message = mod.resetXid(message.Xid)
+	return message, nil
+}
+
+func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (*openflow13.BundleAdd, error) {
 	message := openflow13.NewBundleAdd()
 	message.BundleID = tx.ID
 	message.Flags = tx.flag.getValue()
@@ -130,9 +142,20 @@ func (tx *Transaction) Begin() error {
 	return nil
 }
 
-// AddFlow adds messages in the bundle.
 func (tx *Transaction) AddFlow(flowMod *openflow13.FlowMod) error {
-	message, err := tx.createBundleAddMessage(flowMod)
+	message, err := tx.createBundleAddFlowMessage(flowMod)
+	if err != nil {
+		return err
+	}
+	tx.lock.Lock()
+	tx.successAdd[message.Xid] = true
+	tx.lock.Unlock()
+	return tx.ofSwitch.Send(message)
+}
+
+// AddMessage adds messages in the bundle.
+func (tx *Transaction) AddMessage(modMessage OpenFlowModMessage) error {
+	message, err := tx.createBundleAddMessage(modMessage)
 	if err != nil {
 		return err
 	}

@@ -111,7 +111,7 @@ func (self *Flood) install() error {
 	// Loop thru all output ports and add it to group bucket
 	for _, output := range self.FloodList {
 		// Get the output action from output entry
-		act := output.outPort.GetOutAction()
+		act := output.outPort.GetActionMessage()
 		if act != nil {
 			// Create a new bucket for each port
 			bkt := openflow13.NewBucket()

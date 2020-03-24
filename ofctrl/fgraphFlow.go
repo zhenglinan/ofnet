@@ -19,7 +19,7 @@ package ofctrl
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/contiv/libOpenflow/util"
 	"net"
 	"sync"
 
@@ -70,53 +70,27 @@ type FlowMatch struct {
 	CtMarkMask    *uint32              // Mask of conn_track mark
 }
 
-// additional actions in flow's instruction set
+// additional Actions in flow's instruction set
 type FlowAction struct {
-	actionType   string           // Type of action "setVlan", "setMetadata"
-	vlanId       uint16           // Vlan Id in case of "setVlan"
-	macAddr      net.HardwareAddr // Mac address to set
-	ipAddr       net.IP           // IP address to be set
-	l4Port       uint16           // Transport port to be set
-	arpOper      uint16           // Arp operation type to be set
-	tunnelId     uint64           // Tunnel Id (used for setting VNI)
-	metadata     uint64           // Metadata in case of "setMetadata"
-	metadataMask uint64           // Metadata mask
-	dscp         uint8            // DSCP field
-	loadAct      NXLoad           // Load data into OXM/NXM fields, one or more actions
-	moveAct      NXMove           // Move data from src OXM/NXM field to dst field
-	conjunction  NXConjunction    // AddConjunction actions to be set
-	connTrack    NXConnTrack      // ct actions to be set
-	resubmit     Resubmit         // resubmit packet to a specific table and port. Resubmit could also be a NextElem.
+	actionType   string               // Type of action "setVlan", "setMetadata"
+	vlanId       uint16               // Vlan Id in case of "setVlan"
+	macAddr      net.HardwareAddr     // Mac address to set
+	ipAddr       net.IP               // IP address to be set
+	l4Port       uint16               // Transport port to be set
+	arpOper      uint16               // Arp operation type to be set
+	tunnelId     uint64               // Tunnel Id (used for setting VNI)
+	metadata     uint64               // Metadata in case of "setMetadata"
+	metadataMask uint64               // Metadata mask
+	dscp         uint8                // DSCP field
+	loadAct      *NXLoadAction        // Load data into OXM/NXM fields, one or more Actions
+	moveAct      *NXMoveAction        // Move data from src OXM/NXM field to dst field
+	conjunction  *NXConjunctionAction // AddConjunction Actions to be set
+	connTrack    *NXConnTrackAction   // ct Actions to be set
+	resubmit     *Resubmit            // resubmit packet to a specific Table and port. Resubmit could also be a NextElem.
 	// If the packet is resubmitted to multiple ports, use resubmit as a FlowAction
 	// and the NextElem should be Empty.
-}
-
-type NXLoad struct {
-	Field *openflow13.MatchField
-	Value uint64
-	Range *openflow13.NXRange
-}
-
-type NXMove struct {
-	SrcField  *openflow13.MatchField
-	DstField  *openflow13.MatchField
-	SrcStart  uint16
-	DstStart  uint16
-	MoveNbits uint16
-}
-
-type NXConnTrack struct {
-	commit  bool
-	force   bool
-	table   *uint8
-	zone    *uint16
-	actions []openflow13.Action
-}
-
-type NXConjunction struct {
-	ID      uint32
-	Clause  uint8
-	NClause uint8
+	learn *FlowLearn // nxm learn action
+	notes []byte     // data to set in note action
 }
 
 // State of a flow entry
@@ -127,10 +101,21 @@ type Flow struct {
 	isInstalled bool          // Is the flow installed in the switch
 	CookieID    uint64        // Cookie ID for flowMod message
 	CookieMask  uint64        // Cookie Mask for flowMod message
-	flowActions []*FlowAction // List of flow actions
+	flowActions []*FlowAction // List of flow Actions
 	lock        sync.RWMutex  // lock for modifying flow state
 	statusLock  sync.RWMutex  // lock for modifying flow realized status
 	realized    bool          // Realized status of flow
+
+	appliedActions []OFAction
+	writeActions   []OFAction
+	metadata       *writeMetadata
+	gotoTable      *uint8
+	clearActions   bool
+}
+
+type writeMetadata struct {
+	data uint64
+	mask uint64
 }
 
 // Matches data either exactly or with optional mask in register number ID. The mask
@@ -146,10 +131,19 @@ const IP_PROTO_UDP = 17
 const IP_PROTO_SCTP = 132
 
 var (
-	EmptyFlowActionError    = errors.New("flow actions is empty")
+	EmptyFlowActionError    = errors.New("flow Actions is empty")
 	UnknownElementTypeError = errors.New("unknown Fgraph element type")
 	UnknownActionTypeError  = errors.New("unknown action type")
 )
+
+type FlowBundleMessage struct {
+	message *openflow13.FlowMod
+}
+
+func (m *FlowBundleMessage) resetXid(xid uint32) util.Message {
+	m.message.Xid = xid
+	return m.message
+}
 
 // string key for the flow
 // FIXME: simple json conversion for now. This needs to be smarter
@@ -382,7 +376,7 @@ func (self *Flow) xlateMatch() openflow13.Match {
 	return *ofMatch
 }
 
-// Install all flow actions
+// Install all flow Actions
 func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 	instr openflow13.Instruction) error {
 	var actInstr openflow13.Instruction
@@ -397,7 +391,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 		actInstr = openflow13.NewInstrApplyActions()
 	}
 
-	// Loop thru all actions in reversed order, and prepend the action into instruction, so that the actions is in the
+	// Loop thru all Actions in reversed order, and prepend the action into instruction, so that the Actions is in the
 	// order as it is added by the client.
 	for i := len(self.flowActions) - 1; i >= 0; i-- {
 		flowAction := self.flowActions[i]
@@ -410,7 +404,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			vlanField := openflow13.NewVlanIdField(flowAction.vlanId, nil)
 			setVlanAction := openflow13.NewActionSetField(*vlanField)
 
-			// Prepend push vlan & setvlan actions to existing instruction
+			// Prepend push vlan & setvlan Actions to existing instruction
 			err = actInstr.AddAction(setVlanAction, true)
 			if err != nil {
 				return err
@@ -421,7 +415,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			}
 			addActn = true
 
-			log.Debugf("flow install. Added pushvlan action: %+v, setVlan actions: %+v",
+			log.Debugf("flow install. Added pushvlan action: %+v, setVlan Actions: %+v",
 				pushVlanAction, setVlanAction)
 
 		case "popVlan":
@@ -708,10 +702,8 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			log.Debugf("flow action: Added setSCTPSrc Action: %+v", setSCTPDstAction)
 
 		case "loadReg":
-			// Add load action
-			ofsNbits := flowAction.loadAct.Range.ToOfsBits()
 			// Create NX load action
-			loadRegAction := openflow13.NewNXActionRegLoad(ofsNbits, flowAction.loadAct.Field, flowAction.loadAct.Value)
+			loadRegAction := flowAction.loadAct.GetActionMessage()
 
 			// Add load action to the instruction
 			err = actInstr.AddAction(loadRegAction, true)
@@ -723,10 +715,8 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			log.Debugf("flow action: Added loadReg Action: %+v", loadRegAction)
 
 		case "moveReg":
-			// Add move action
-			move := flowAction.moveAct
 			// Create NX move action
-			moveRegAction := openflow13.NewNXActionRegMove(move.MoveNbits, move.SrcStart, move.DstStart, move.SrcField, move.DstField)
+			moveRegAction := flowAction.moveAct.GetActionMessage()
 
 			// Add move action to the instruction
 			err = actInstr.AddAction(moveRegAction, true)
@@ -738,24 +728,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			log.Debugf("flow action: Added moveReg Action: %+v", moveRegAction)
 
 		case "ct":
-			ctAct := flowAction.connTrack
-			// Create NX ct action
-			ctAction := openflow13.NewNXActionConnTrack()
-			if ctAct.commit {
-				ctAction.Commit()
-			}
-			if ctAct.force {
-				ctAction.Force()
-			}
-			if ctAct.table != nil {
-				ctAction.Table(*ctAct.table)
-			}
-			if ctAct.zone != nil {
-				ctAction.ZoneImm(*ctAct.zone)
-			}
-			if ctAct.actions != nil {
-				ctAction = ctAction.AddAction(ctAct.actions...)
-			}
+			ctAction := flowAction.connTrack.GetActionMessage()
 
 			// Add conn_track action to the instruction
 			err = actInstr.AddAction(ctAction, true)
@@ -767,9 +740,8 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			log.Debugf("flow action: Added ct Action: %+v", ctAction)
 
 		case "conjunction":
-			conjAct := flowAction.conjunction
 			// Create NX conjunction action
-			conjAction := openflow13.NewNXActionConjunction(conjAct.Clause, conjAct.NClause, conjAct.ID)
+			conjAction := flowAction.conjunction.GetActionMessage()
 
 			// Add conn_track action to the instruction
 			err = actInstr.AddAction(conjAction, true)
@@ -793,14 +765,35 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 		case "resubmit":
 			resubmitAction := flowAction.resubmit
 			// Add resubmit action to the instruction
-			err = actInstr.AddAction(resubmitAction.GetResubmitAction(), true)
+			err = actInstr.AddAction(resubmitAction.GetActionMessage(), true)
 			if err != nil {
 				return err
 			}
 			addActn = true
 
 			log.Debugf("flow action: Added resubmit Action: %+v", resubmitAction)
+		case "learn":
+			learnAction := flowAction.learn
+			// Add learn action to the instruction
+			err = actInstr.AddAction(learnAction.GetActionMessage(), true)
+			if err != nil {
+				return err
+			}
+			addActn = true
 
+			log.Debugf("flow action: Added learn Action: %+v", learnAction)
+		case "note":
+			notes := flowAction.notes
+			noteAction := openflow13.NewNXActionNote()
+			noteAction.Note = notes
+			// Add note action to the instruction
+			err = actInstr.AddAction(noteAction, true)
+			if err != nil {
+				return err
+			}
+			addActn = true
+
+			log.Debugf("flow action: Added learn Action: %+v", noteAction)
 		default:
 			log.Fatalf("Unknown action type %s", flowAction.actionType)
 			return UnknownActionTypeError
@@ -809,7 +802,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 	// Add the instruction to flow if its not already added
 	if (addActn) && (actInstr != instr) {
-		// Add the instrction to flowmod
+		// Add the instruction to flowmod
 		flowMod.AddInstruction(actInstr)
 	}
 
@@ -954,16 +947,6 @@ func (self *Flow) UpdateInstallStatus(installed bool) {
 	self.isInstalled = installed
 }
 
-// Send generates a FlowMod message according the operationType, and then sends it to the OFSwitch.
-func (self *Flow) Send(operationType int) error {
-	flowMod, err := self.GenerateFlowModMessage(operationType)
-	if err != nil {
-		return err
-	}
-	// Send the message
-	return self.Table.Switch.Send(flowMod)
-}
-
 // Set Next element in the Fgraph. This determines what actions will be
 // part of the flow's instruction set
 func (self *Flow) Next(elem FgraphElem) error {
@@ -977,7 +960,7 @@ func (self *Flow) Next(elem FgraphElem) error {
 	return self.install()
 }
 
-// Special actions on the flow to set vlan id
+// Special action on the flow to set vlan id
 func (self *Flow) SetVlan(vlanId uint16) error {
 	action := new(FlowAction)
 	action.actionType = "setVlan"
@@ -997,7 +980,7 @@ func (self *Flow) SetVlan(vlanId uint16) error {
 	return nil
 }
 
-// Special actions on the flow to set vlan id
+// Special action on the flow to set vlan id
 func (self *Flow) PopVlan() error {
 	action := new(FlowAction)
 	action.actionType = "popVlan"
@@ -1016,7 +999,7 @@ func (self *Flow) PopVlan() error {
 	return nil
 }
 
-// Special actions on the flow to set mac dest addr
+// Special action on the flow to set mac dest addr
 func (self *Flow) SetMacDa(macDa net.HardwareAddr) error {
 	action := new(FlowAction)
 	action.actionType = "setMacDa"
@@ -1308,16 +1291,11 @@ func (self *Flow) SetARPTha(arpTha net.HardwareAddr) error {
 	return nil
 }
 
-// Special actions on the flow to load data into OXM/NXM field
+// Special Actions on the flow to load data into OXM/NXM field
 func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.NXRange) error {
-	field, err := openflow13.FindFieldHeaderByName(fieldName, true)
+	loadAct, err := NewNXLoadAction(fieldName, data, dataRange)
 	if err != nil {
 		return err
-	}
-	loadAct := NXLoad{
-		Field: field,
-		Range: dataRange,
-		Value: data,
 	}
 
 	action := new(FlowAction)
@@ -1336,29 +1314,11 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 	return nil
 }
 
-// Special actions on the flow to move data from src_field[rng] to dst_field[rng]
+// Special Actions on the flow to move data from src_field[rng] to dst_field[rng]
 func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange) error {
-	srcNBits := srcRange.GetNbits()
-	srcOfs := srcRange.GetOfs()
-	srcField, err := openflow13.FindFieldHeaderByName(srcName, false)
+	moveAct, err := NewNXMoveAction(srcName, dstName, srcRange, dstRange)
 	if err != nil {
 		return err
-	}
-	dstNBits := srcRange.GetNbits()
-	dstOfs := srcRange.GetOfs()
-	dstField, err := openflow13.FindFieldHeaderByName(dstName, false)
-	if err != nil {
-		return err
-	}
-	if srcNBits != dstNBits {
-		return fmt.Errorf("Bits count for move opereation is inconsistent, src: %d, dst: %d", srcNBits, dstNBits)
-	}
-	moveAct := NXMove{
-		SrcField:  srcField,
-		DstField:  dstField,
-		SrcStart:  srcOfs,
-		DstStart:  dstOfs,
-		MoveNbits: srcNBits,
 	}
 
 	action := new(FlowAction)
@@ -1380,7 +1340,7 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 func (self *Flow) Resubmit(ofPort uint16, tableID uint8) error {
 	action := new(FlowAction)
 	action.actionType = "resubmit"
-	action.resubmit = *NewResubmit(&ofPort, &tableID)
+	action.resubmit = NewResubmit(&ofPort, &tableID)
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1396,7 +1356,7 @@ func (self *Flow) Resubmit(ofPort uint16, tableID uint8) error {
 
 // Special actions on the flow for connection trackng
 func (self *Flow) ConnTrack(commit bool, force bool, tableID *uint8, zoneID *uint16, execActions ...openflow13.Action) error {
-	connTrack := NXConnTrack{
+	connTrack := &NXConnTrackAction{
 		commit:  commit,
 		force:   force,
 		table:   tableID,
@@ -1419,25 +1379,16 @@ func (self *Flow) ConnTrack(commit bool, force bool, tableID *uint8, zoneID *uin
 	return nil
 }
 
-// Special actions to to the flow to set conjunctions
+// Special Actions to to the flow to set conjunctions
 // Note:
 //   1) nclause should be in [2, 64].
 //   2) clause value should be less than or equals to ncluase, and its value should be started from 1.
 //      actual clause in libopenflow messages is started from 0, here would decrement 1 to keep the display
 //      value is consistent with expected configuration
 func (self *Flow) AddConjunction(conjID uint32, clause uint8, nClause uint8) error {
-	if nClause < 2 || nClause > 64 {
-		return errors.New("clause number in conjunction shoule be in range [2,64]")
-	}
-	if clause > nClause {
-		return errors.New("clause in conjunction should be less than nclause")
-	} else if clause < 1 {
-		return errors.New("clause in conjunction should be no less than 1")
-	}
-	conjunction := NXConjunction{
-		ID:      conjID,
-		Clause:  clause - 1,
-		NClause: nClause,
+	conjunction, err := NewNXConjunctionAction(conjID, clause, nClause)
+	if err != nil {
+		return nil
 	}
 
 	action := new(FlowAction)
@@ -1477,7 +1428,7 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 		return nil
 	}
 
-	// Return EmptyFlowActionError if there is no actions left in flow
+	// Return EmptyFlowActionError if there is no Actions left in flow
 	if len(self.flowActions) == 0 {
 		return EmptyFlowActionError
 	}
@@ -1489,10 +1440,45 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 	return nil
 }
 
-// Special actions to the flow to dec TTL
+// Special Actions to the flow to dec TTL
 func (self *Flow) DecTTL() error {
 	action := new(FlowAction)
 	action.actionType = "decTTL"
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	// Add to the action db
+	self.flowActions = append(self.flowActions, action)
+	// If the flow entry was already installed, re-install it
+	if self.isInstalled {
+		return self.install()
+	}
+
+	return nil
+}
+
+// Special Actions to the flow to learn from the current packet and generate a new flow entry.
+func (self *Flow) Learn(learn *FlowLearn) error {
+	action := new(FlowAction)
+	action.actionType = "learn"
+	action.learn = learn
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	// Add to the action db
+	self.flowActions = append(self.flowActions, action)
+	// If the flow entry was already installed, re-install it
+	if self.isInstalled {
+		return self.install()
+	}
+
+	return nil
+}
+
+func (self *Flow) Note(data []byte) error {
+	action := new(FlowAction)
+	action.actionType = "note"
+	action.notes = data
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1536,7 +1522,7 @@ func (self *Flow) Delete() error {
 		}
 	}
 
-	// Delete it from the table
+	// Delete it from the Table
 	flowKey := self.flowKey()
 	return self.Table.DeleteFlow(flowKey)
 }
@@ -1561,4 +1547,115 @@ func (self *Flow) MonitorRealizeStatus() {
 	if stats != nil {
 		self.realized = true
 	}
+}
+
+func (self *Flow) GetBundleMessage(command int) (*FlowBundleMessage, error) {
+	var flowMod *openflow13.FlowMod
+	var err error
+	if self.NextElem != nil {
+		flowMod, err = self.GenerateFlowModMessage(command)
+	} else {
+		flowMod, err = self.generateFlowMessage(command)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &FlowBundleMessage{flowMod}, nil
+}
+
+func (self *Flow) ApplyActions(actions []OFAction) {
+	self.appliedActions = append(self.appliedActions, actions...)
+}
+
+func (self *Flow) ResetApplyActions(actions []OFAction) {
+	self.appliedActions = nil
+	self.ApplyActions(actions)
+}
+
+func (self *Flow) WriteActions(actions []OFAction) {
+	self.writeActions = append(self.writeActions, actions...)
+}
+
+func (self *Flow) ResetWriteActions(actions []OFAction) {
+	self.writeActions = nil
+	self.WriteActions(actions)
+}
+
+func (self *Flow) WriteMetadata(metadata uint64, metadataMask uint64) {
+	self.metadata = &writeMetadata{metadata, metadataMask}
+}
+
+func (self *Flow) Goto(tableID uint8) {
+	self.gotoTable = &tableID
+}
+
+func (self *Flow) ClearActions() {
+	self.clearActions = true
+}
+
+func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.FlowMod, err error) {
+	flowMod = openflow13.NewFlowMod()
+	flowMod.TableId = self.Table.TableId
+	flowMod.Priority = self.Match.Priority
+	// Cookie ID could be set by client, using globalFlowID if not set
+	if self.CookieID == 0 {
+		self.CookieID = globalFlowID // FIXME: need a better id allocation
+		globalFlowID += 1
+	}
+	flowMod.Cookie = self.CookieID
+	if self.CookieMask > 0 {
+		flowMod.CookieMask = self.CookieMask
+	}
+	flowMod.Command = uint8(commandType)
+
+	// convert match fields to openflow 1.3 format
+	flowMod.Match = self.xlateMatch()
+	log.Debugf("flow install: Match: %+v", flowMod.Match)
+	if commandType != openflow13.FC_DELETE && commandType != openflow13.FC_DELETE_STRICT {
+		if self.metadata != nil {
+			openflow13.NewInstrWriteMetadata(self.metadata.data, self.metadata.mask)
+		}
+		if len(self.appliedActions) > 0 {
+			appiedInstruction := openflow13.NewInstrApplyActions()
+			for _, act := range self.appliedActions {
+				err := appiedInstruction.AddAction(act.GetActionMessage(), false)
+				if err != nil {
+					return nil, err
+				}
+			}
+			flowMod.AddInstruction(appiedInstruction)
+		}
+		if self.clearActions {
+			clearInstruction := new(openflow13.InstrActions)
+			clearInstruction.InstrHeader = openflow13.InstrHeader{
+				Type:   openflow13.InstrType_CLEAR_ACTIONS,
+				Length: 8,
+			}
+			flowMod.AddInstruction(clearInstruction)
+		}
+		if len(self.writeActions) > 0 {
+			writeInstruction := openflow13.NewInstrWriteActions()
+			for _, act := range self.writeActions {
+				if err := writeInstruction.AddAction(act.GetActionMessage(), false); err != nil {
+					return nil, err
+				}
+			}
+			flowMod.AddInstruction(writeInstruction)
+		}
+		if self.gotoTable != nil {
+			gotoTableInstruction := openflow13.NewInstrGotoTable(*self.gotoTable)
+			flowMod.AddInstruction(gotoTableInstruction)
+		}
+	}
+	return flowMod, nil
+}
+
+// Send generates a FlowMod message according the operationType, and then sends it to the OFSwitch.
+func (self *Flow) Send(operationType int) error {
+	flowMod, err := self.generateFlowMessage(operationType)
+	if err != nil {
+		return err
+	}
+	// Send the message
+	return self.Table.Switch.Send(flowMod)
 }

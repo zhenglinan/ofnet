@@ -17,13 +17,13 @@ func (self *NXOutput) Type() string {
 // instruction set for NXOutput element
 func (self *NXOutput) GetFlowInstr() openflow13.Instruction {
 	outputInstr := openflow13.NewInstrApplyActions()
-	outputAct := self.GetNXOutputAction()
+	outputAct := self.GetActionMessage()
 	outputInstr.AddAction(outputAct, false)
 	return outputInstr
 }
 
 // Return a NXOutput action
-func (self *NXOutput) GetNXOutputAction() openflow13.Action {
+func (self *NXOutput) GetActionMessage() openflow13.Action {
 	ofsNbits := self.fieldRange.ToOfsBits()
 	targetField := self.field
 	// Create NX output Register action
