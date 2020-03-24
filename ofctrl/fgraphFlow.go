@@ -86,7 +86,7 @@ type FlowAction struct {
 	moveAct      NXMove           // Move data from src OXM/NXM field to dst field
 	conjunction  NXConjunction    // AddConjunction actions to be set
 	connTrack    NXConnTrack      // ct actions to be set
-	reubmit      Resubmit         // resubmit packet to a specific table and port. Resubmit could also be a NextElem.
+	resubmit     Resubmit         // resubmit packet to a specific table and port. Resubmit could also be a NextElem.
 	// If the packet is resubmitted to multiple ports, use resubmit as a FlowAction
 	// and the NextElem should be Empty.
 }
@@ -791,7 +791,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added decTTL Action: %+v", decTtlAction)
 		case "resubmit":
-			resubmitAction := flowAction.reubmit
+			resubmitAction := flowAction.resubmit
 			// Add resubmit action to the instruction
 			err = actInstr.AddAction(resubmitAction.GetResubmitAction(), true)
 			if err != nil {
@@ -1364,6 +1364,23 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 	action := new(FlowAction)
 	action.actionType = "moveReg"
 	action.moveAct = moveAct
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	// Add to the action db
+	self.flowActions = append(self.flowActions, action)
+	// If the flow entry was already installed, re-install it
+	if self.isInstalled {
+		return self.install()
+	}
+
+	return nil
+}
+
+func (self *Flow) Resubmit(ofPort uint16, tableID uint8) error {
+	action := new(FlowAction)
+	action.actionType = "resubmit"
+	action.resubmit = *NewResubmit(&ofPort, &tableID)
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
