@@ -26,6 +26,7 @@ import (
 func (self *OFSwitch) initFgraph() error {
 	// Create the DBs
 	self.tableDb = make(map[uint8]*Table)
+	self.groupDb = make(map[uint32]*Group)
 	self.outputPorts = make(map[uint32]*Output)
 
 	// Create the table 0
