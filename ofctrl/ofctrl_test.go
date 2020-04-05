@@ -1918,4 +1918,23 @@ func TestWriteactionsFlows(t *testing.T) {
 		"priority=200,dl_dst=11:11:11:11:11:11",
 		"load:0x1->NXM_NX_REG0[16],write_actions(output:1),goto_table:1")
 
+    // Test ingressrule table flow with actset_output
+    actsetOutput4 := uint32(105)
+    flow4 := &Flow{
+		Table: ofApp.inputTable,
+        Match: FlowMatch{
+            Priority:  200,
+            Ethertype: 0x0800,
+            ActsetOutput: actsetOutput4,
+        },
+    }
+
+    conjunction4, err := NewNXConjunctionAction(uint32(101), uint8(2), uint8(3))
+    require.Nil(t, err)
+    flow4.ApplyActions([]OFAction{conjunction4})
+
+    verifyNewFlowInstallAndDelete(t, flow4, brName, ofApp.inputTable.TableId,
+        "priority=200,ip,actset_output=2",
+        "conjunction(101,2/3)")
+
 }
