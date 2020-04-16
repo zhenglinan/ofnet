@@ -27,6 +27,10 @@ func (self *Resubmit) GetActionMessage() openflow13.Action {
 	return openflow13.NewNXActionResubmitTableAction(self.ofport, self.nextTable)
 }
 
+func (self *Resubmit) GetActionType() string {
+	return ActTypeNXResubmit
+}
+
 func NewResubmit(inPort *uint16, table *uint8) *Resubmit {
 	resubmit := new(Resubmit)
 	if inPort == nil {

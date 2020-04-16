@@ -17,6 +17,7 @@ package ofctrl
 // This file implements the forwarding graph API for the flow
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"github.com/contiv/libOpenflow/util"
@@ -69,11 +70,12 @@ type FlowMatch struct {
 	CtMark        uint32               // conn_track mark
 	CtMarkMask    *uint32              // Mask of conn_track mark
 	ActsetOutput  uint32               // Output port number
+	TunMetadatas  []*NXTunMetadata     // tun_metadataX or tun_metadataX[m..n]
 }
 
 // additional Actions in flow's instruction set
 type FlowAction struct {
-	actionType   string               // Type of action "setVlan", "setMetadata"
+	ActionType   string               // Type of action "setVlan", "setMetadata"
 	vlanId       uint16               // Vlan Id in case of "setVlan"
 	macAddr      net.HardwareAddr     // Mac address to set
 	ipAddr       net.IP               // IP address to be set
@@ -90,8 +92,9 @@ type FlowAction struct {
 	resubmit     *Resubmit            // resubmit packet to a specific Table and port. Resubmit could also be a NextElem.
 	// If the packet is resubmitted to multiple ports, use resubmit as a FlowAction
 	// and the NextElem should be Empty.
-	learn *FlowLearn // nxm learn action
-	notes []byte     // data to set in note action
+	learn      *FlowLearn    // nxm learn action
+	notes      []byte        // data to set in note action
+	controller *NXController // send packet to controller
 }
 
 // State of a flow entry
@@ -99,6 +102,8 @@ type Flow struct {
 	Table       *Table        // Table where this flow resides
 	Match       FlowMatch     // Fields to be matched
 	NextElem    FgraphElem    // Next fw graph element
+	HardTimeout uint16        // Timeout to remove the flow after it is installed in the switch
+	IdleTimeout uint16        // Timeout to remove the flow after its last hit
 	isInstalled bool          // Is the flow installed in the switch
 	CookieID    uint64        // Cookie ID for flowMod message
 	CookieMask  uint64        // Cookie Mask for flowMod message
@@ -125,6 +130,12 @@ type NXRegister struct {
 	ID    int                 // ID of NXM_NX_REG, value should be from 0 to 15
 	Data  uint32              // Data to cache in register
 	Range *openflow13.NXRange // Range of bits in register
+}
+
+type NXTunMetadata struct {
+	ID    int                 // ID of NXM_NX_TUN_METADATA, value should be from 0 to 7. OVS supports 64 tun_metadata, but only 0-7 is implemented in libOpenflow
+	Data  interface{}         // Data to set in the register
+	Range *openflow13.NXRange // Range of bits in the field
 }
 
 const IP_PROTO_TCP = 6
@@ -374,14 +385,98 @@ func (self *Flow) xlateMatch() openflow13.Match {
 		ofMatch.AddField(*ctMarkField)
 	}
 
-    // Handle actset_output match
-    if self.Match.ActsetOutput != 0 {
+	// Handle actset_output match
+	if self.Match.ActsetOutput != 0 {
 		actsetOutputField := openflow13.NewActsetOutputField(self.Match.ActsetOutput)
-	    ofMatch.AddField(*actsetOutputField)
+		ofMatch.AddField(*actsetOutputField)
 	}
 
+	// Handle tun_metadata match
+	if len(self.Match.TunMetadatas) > 0 {
+		for _, m := range self.Match.TunMetadatas {
+			data := getDataBytes(m.Data, m.Range)
+			var mask []byte
+			if m.Range != nil {
+				start := int(m.Range.GetOfs())
+				length := int(m.Range.GetNbits())
+				mask = getMaskBytes(start, length)
+			}
+			tmField := openflow13.NewTunMetadataField(m.ID, data, mask)
+			ofMatch.AddField(*tmField)
+		}
+	}
 
 	return *ofMatch
+}
+
+func getDataBytes(value interface{}, nxRange *openflow13.NXRange) []byte {
+	start := int(nxRange.GetOfs())
+	length := int(nxRange.GetNbits())
+	switch v := value.(type) {
+	case uint32:
+		rst := getUint32WithOfs(v, start, length)
+		data := make([]byte, 4)
+		binary.BigEndian.PutUint32(data, rst)
+		return data
+	case uint64:
+		rst := getUint64WithOfs(v, start, length)
+		data := make([]byte, 8)
+		binary.BigEndian.PutUint64(data, rst)
+		return data
+	case []byte:
+		return v
+	}
+	return nil
+}
+
+func getUint32WithOfs(data uint32, start, length int) uint32 {
+	return data << (32 - length) >> (32 - length - start)
+}
+
+func getUint64WithOfs(data uint64, start, length int) uint64 {
+	return data << (64 - length) >> (64 - length - start)
+}
+
+func getMaskBytes(start, length int) []byte {
+	end := start + length - 1
+	if end < 32 {
+		data := make([]byte, 4)
+		mask := getUint32WithOfs(^uint32(0), start, length)
+		binary.BigEndian.PutUint32(data, mask)
+		return data
+	}
+	if end < 64 {
+		data := make([]byte, 8)
+		mask := getUint64WithOfs(^uint64(0), start, length)
+		binary.BigEndian.PutUint64(data, mask)
+		return data
+	}
+	i := 0
+	bytesLength := 8 * ((end + 63) / 64)
+	data := make([]byte, bytesLength)
+	for i < bytesLength {
+		subStart := i * 64
+		subEnd := i*64 + 63
+		if start > subEnd {
+			binary.BigEndian.PutUint64(data[i:], uint64(0))
+			i += 8
+			continue
+		}
+		var rngStart, rngLength int
+		if start < subStart {
+			rngStart = 0
+		} else {
+			rngStart = start - subStart
+		}
+		if end > subEnd {
+			rngLength = 64 - rngStart
+		} else {
+			rngLength = (end - subStart) - rngStart + 1
+		}
+		data = append(data, getMaskBytes(rngStart, rngLength)...)
+		i += 8
+	}
+	return data
 }
 
 // Install all flow Actions
@@ -403,7 +498,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 	// order as it is added by the client.
 	for i := len(self.flowActions) - 1; i >= 0; i-- {
 		flowAction := self.flowActions[i]
-		switch flowAction.actionType {
+		switch flowAction.ActionType {
 		case "setVlan":
 			// Push Vlan Tag action
 			pushVlanAction := openflow13.NewActionPushVlan(0x8100)
@@ -801,9 +896,17 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			}
 			addActn = true
 
-			log.Debugf("flow action: Added learn Action: %+v", noteAction)
+			log.Debugf("flow action: Added note Action: %+v", noteAction)
+		case "controller":
+			act := flowAction.controller
+			err = actInstr.AddAction(act.GetActionMessage(), true)
+			if err != nil {
+				return err
+			}
+			addActn = true
+			log.Debugf("flow action: Added controller Action: %+v", act)
 		default:
-			log.Fatalf("Unknown action type %s", flowAction.actionType)
+			log.Fatalf("Unknown action type %s", flowAction.ActionType)
 			return UnknownActionTypeError
 		}
 	}
@@ -831,6 +934,12 @@ func (self *Flow) GenerateFlowModMessage(commandType int) (flowMod *openflow13.F
 	flowMod.Cookie = self.CookieID
 	if self.CookieMask > 0 {
 		flowMod.CookieMask = self.CookieMask
+	}
+	if self.HardTimeout > 0 {
+		flowMod.HardTimeout = self.HardTimeout
+	}
+	if self.IdleTimeout > 0 {
+		flowMod.IdleTimeout = self.IdleTimeout
 	}
 	flowMod.Command = uint8(commandType)
 
@@ -876,7 +985,7 @@ func (self *Flow) GenerateFlowModMessage(commandType int) (flowMod *openflow13.F
 
 				log.Debugf("flow install: added next instr: %+v", instr)
 			}
-		case "NxOutput":
+		case "nxOutput":
 			fallthrough
 		case "group":
 			fallthrough
@@ -971,7 +1080,7 @@ func (self *Flow) Next(elem FgraphElem) error {
 // Special action on the flow to set vlan id
 func (self *Flow) SetVlan(vlanId uint16) error {
 	action := new(FlowAction)
-	action.actionType = "setVlan"
+	action.ActionType = "setVlan"
 	action.vlanId = vlanId
 
 	self.lock.Lock()
@@ -991,7 +1100,7 @@ func (self *Flow) SetVlan(vlanId uint16) error {
 // Special action on the flow to set vlan id
 func (self *Flow) PopVlan() error {
 	action := new(FlowAction)
-	action.actionType = "popVlan"
+	action.ActionType = "popVlan"
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1010,7 +1119,7 @@ func (self *Flow) PopVlan() error {
 // Special action on the flow to set mac dest addr
 func (self *Flow) SetMacDa(macDa net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.actionType = "setMacDa"
+	action.ActionType = "setMacDa"
 	action.macAddr = macDa
 
 	self.lock.Lock()
@@ -1030,7 +1139,7 @@ func (self *Flow) SetMacDa(macDa net.HardwareAddr) error {
 // Special action on the flow to set mac source addr
 func (self *Flow) SetMacSa(macSa net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.actionType = "setMacSa"
+	action.ActionType = "setMacSa"
 	action.macAddr = macSa
 
 	self.lock.Lock()
@@ -1052,13 +1161,13 @@ func (self *Flow) SetIPField(ip net.IP, field string) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
 	if field == "Src" {
-		action.actionType = "setIPSa"
+		action.ActionType = "setIPSa"
 	} else if field == "Dst" {
-		action.actionType = "setIPDa"
+		action.ActionType = "setIPDa"
 	} else if field == "TunSrc" {
-		action.actionType = "setTunSa"
+		action.ActionType = "setTunSa"
 	} else if field == "TunDst" {
-		action.actionType = "setTunDa"
+		action.ActionType = "setTunDa"
 	} else {
 		return errors.New("field not supported")
 	}
@@ -1081,7 +1190,7 @@ func (self *Flow) SetIPField(ip net.IP, field string) error {
 func (self *Flow) SetARPSpa(ip net.IP) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
-	action.actionType = "setARPSpa"
+	action.ActionType = "setARPSpa"
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1101,7 +1210,7 @@ func (self *Flow) SetARPSpa(ip net.IP) error {
 func (self *Flow) SetARPTpa(ip net.IP) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
-	action.actionType = "setARPTpa"
+	action.ActionType = "setARPTpa"
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1124,22 +1233,22 @@ func (self *Flow) SetL4Field(port uint16, field string) error {
 
 	switch field {
 	case "TCPSrc":
-		action.actionType = "setTCPSrc"
+		action.ActionType = "setTCPSrc"
 		break
 	case "TCPDst":
-		action.actionType = "setTCPDst"
+		action.ActionType = "setTCPDst"
 		break
 	case "UDPSrc":
-		action.actionType = "setUDPSrc"
+		action.ActionType = "setUDPSrc"
 		break
 	case "UDPDst":
-		action.actionType = "setUDPDst"
+		action.ActionType = "setUDPDst"
 		break
 	case "SCTPSrc":
-		action.actionType = "setSCTPSrc"
+		action.ActionType = "setSCTPSrc"
 		break
 	case "SCTPDst":
-		action.actionType = "setSCTPDst"
+		action.ActionType = "setSCTPDst"
 		break
 	default:
 		return errors.New("field not supported")
@@ -1162,7 +1271,7 @@ func (self *Flow) SetL4Field(port uint16, field string) error {
 // Special actions on the flow to set metadata
 func (self *Flow) SetMetadata(metadata, metadataMask uint64) error {
 	action := new(FlowAction)
-	action.actionType = "setMetadata"
+	action.ActionType = "setMetadata"
 	action.metadata = metadata
 	action.metadataMask = metadataMask
 
@@ -1183,7 +1292,7 @@ func (self *Flow) SetMetadata(metadata, metadataMask uint64) error {
 // Special actions on the flow to set vlan id
 func (self *Flow) SetTunnelId(tunnelId uint64) error {
 	action := new(FlowAction)
-	action.actionType = "setTunnelId"
+	action.ActionType = "setTunnelId"
 	action.tunnelId = tunnelId
 
 	self.lock.Lock()
@@ -1203,7 +1312,7 @@ func (self *Flow) SetTunnelId(tunnelId uint64) error {
 // Special actions on the flow to set dscp field
 func (self *Flow) SetDscp(dscp uint8) error {
 	action := new(FlowAction)
-	action.actionType = "setDscp"
+	action.ActionType = "setDscp"
 	action.dscp = dscp
 
 	self.lock.Lock()
@@ -1227,7 +1336,7 @@ func (self *Flow) UnsetDscp() error {
 
 	// Delete to the action from db
 	for idx, act := range self.flowActions {
-		if act.actionType == "setDscp" {
+		if act.ActionType == "setDscp" {
 			self.flowActions = append(self.flowActions[:idx], self.flowActions[idx+1:]...)
 		}
 	}
@@ -1242,7 +1351,7 @@ func (self *Flow) UnsetDscp() error {
 
 func (self *Flow) SetARPOper(arpOp uint16) error {
 	action := new(FlowAction)
-	action.actionType = "setARPOper"
+	action.ActionType = "setARPOper"
 	action.arpOper = arpOp
 
 	self.lock.Lock()
@@ -1262,7 +1371,7 @@ func (self *Flow) SetARPOper(arpOp uint16) error {
 // Special action on the flow to set ARP source host addr
 func (self *Flow) SetARPSha(arpSha net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.actionType = "setARPSha"
+	action.ActionType = "setARPSha"
 	action.macAddr = arpSha
 
 	self.lock.Lock()
@@ -1282,7 +1391,7 @@ func (self *Flow) SetARPSha(arpSha net.HardwareAddr) error {
 // Special action on the flow to set ARP target host addr
 func (self *Flow) SetARPTha(arpTha net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.actionType = "setARPTha"
+	action.ActionType = "setARPTha"
 	action.macAddr = arpTha
 
 	self.lock.Lock()
@@ -1307,7 +1416,7 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 	}
 
 	action := new(FlowAction)
-	action.actionType = "loadReg"
+	action.ActionType = "loadReg"
 	action.loadAct = loadAct
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1330,7 +1439,7 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 	}
 
 	action := new(FlowAction)
-	action.actionType = "moveReg"
+	action.ActionType = "moveReg"
 	action.moveAct = moveAct
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1347,7 +1456,7 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 
 func (self *Flow) Resubmit(ofPort uint16, tableID uint8) error {
 	action := new(FlowAction)
-	action.actionType = "resubmit"
+	action.ActionType = "resubmit"
 	action.resubmit = NewResubmit(&ofPort, &tableID)
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1372,7 +1481,7 @@ func (self *Flow) ConnTrack(commit bool, force bool, tableID *uint8, zoneID *uin
 		actions: execActions,
 	}
 	action := new(FlowAction)
-	action.actionType = "ct"
+	action.ActionType = "ct"
 	action.connTrack = connTrack
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1400,7 +1509,7 @@ func (self *Flow) AddConjunction(conjID uint32, clause uint8, nClause uint8) err
 	}
 
 	action := new(FlowAction)
-	action.actionType = "conjunction"
+	action.ActionType = "conjunction"
 	action.conjunction = conjunction
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1423,7 +1532,7 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 
 	// Remove conjunction from the action db
 	for i, act := range self.flowActions {
-		if act.actionType == "conjunction" {
+		if act.ActionType == "conjunction" {
 			conjuncAct := act.conjunction
 			if conjID == conjuncAct.ID {
 				self.flowActions = append(self.flowActions[:i], self.flowActions[i+1:]...)
@@ -1451,7 +1560,7 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 // Special Actions to the flow to dec TTL
 func (self *Flow) DecTTL() error {
 	action := new(FlowAction)
-	action.actionType = "decTTL"
+	action.ActionType = "decTTL"
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1468,7 +1577,7 @@ func (self *Flow) DecTTL() error {
 // Special Actions to the flow to learn from the current packet and generate a new flow entry.
 func (self *Flow) Learn(learn *FlowLearn) error {
 	action := new(FlowAction)
-	action.actionType = "learn"
+	action.ActionType = "learn"
 	action.learn = learn
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1485,8 +1594,28 @@ func (self *Flow) Learn(learn *FlowLearn) error {
 
 func (self *Flow) Note(data []byte) error {
 	action := new(FlowAction)
-	action.actionType = "note"
+	action.ActionType = "note"
 	action.notes = data
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	// Add to the action db
+	self.flowActions = append(self.flowActions, action)
+	// If the flow entry was already installed, re-install it
+	if self.isInstalled {
+		return self.install()
+	}
+
+	return nil
+}
+
+func (self *Flow) Controller(reason uint8) error {
+	action := new(FlowAction)
+	action.controller = &NXController{
+		ControllerID: self.Table.Switch.ctrlID,
+		Reason:       reason,
+	}
+	action.ActionType = "controller"
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1551,7 +1680,10 @@ func (self *Flow) IsRealized() bool {
 // MonitorRealizeStatus sends MultipartRequest to get current flow status, it is calling if needs to check
 // flow's realized status
 func (self *Flow) MonitorRealizeStatus() {
-	stats := self.Table.Switch.DumpFlowStats(self.CookieID, self.CookieMask, &self.Match, &self.Table.TableId)
+	stats, err := self.Table.Switch.DumpFlowStats(self.CookieID, self.CookieMask, &self.Match, &self.Table.TableId)
+	if err != nil {
+		self.realized = false
+	}
 	if stats != nil {
 		self.realized = true
 	}
@@ -1601,6 +1733,14 @@ func (self *Flow) ClearActions() {
 	self.clearActions = true
 }
 
+func (self *Flow) Drop() {
+	self.appliedActions = nil
+	self.metadata = nil
+	self.writeActions = nil
+	self.clearActions = false
+	self.gotoTable = nil
+}
+
 func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.FlowMod, err error) {
 	flowMod = openflow13.NewFlowMod()
 	flowMod.TableId = self.Table.TableId
@@ -1613,6 +1753,12 @@ func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.Flow
 	flowMod.Cookie = self.CookieID
 	if self.CookieMask > 0 {
 		flowMod.CookieMask = self.CookieMask
+	}
+	if self.HardTimeout > 0 {
+		flowMod.HardTimeout = self.HardTimeout
+	}
+	if self.IdleTimeout > 0 {
+		flowMod.IdleTimeout = self.IdleTimeout
 	}
 	flowMod.Command = uint8(commandType)
 

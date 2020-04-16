@@ -39,6 +39,10 @@ func (self *Group) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionGroup(self.ID)
 }
 
+func (self *Group) GetActionType() string {
+	return ActTypeGroup
+}
+
 func (self *Group) GetFlowInstr() openflow13.Instruction {
 	groupInstr := openflow13.NewInstrApplyActions()
 	groupAct := self.GetActionMessage()

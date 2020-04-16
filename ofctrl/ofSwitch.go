@@ -17,6 +17,7 @@ package ofctrl
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -62,6 +63,9 @@ type OFSwitch struct {
 	txLock  sync.Mutex         // lock for txChans
 	ctx     context.Context    // ctx is used in the lifecycle of a connection
 	cancel  context.CancelFunc // cancel is used to cancel the proceeding OpenFlow message when OFSwitch is disconnected.
+	ctrlID  uint16
+
+	tlvTableStatus *TLVTableStatus
 }
 
 var switchDb cmap.ConcurrentMap
@@ -74,7 +78,7 @@ func init() {
 
 // Builds and populates a Switch struct then starts listening
 // for OpenFlow messages on conn.
-func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterface, connCh chan int) *OFSwitch {
+func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterface, connCh chan int, ctrlID uint16) *OFSwitch {
 	var s *OFSwitch
 	if getSwitch(dpid) == nil {
 		log.Infoln("Openflow Connection for new switch:", dpid)
@@ -85,6 +89,7 @@ func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterfa
 		s.dpid = dpid
 		s.connCh = connCh
 		s.txChans = make(map[uint32]chan MessageResult)
+		s.ctrlID = ctrlID
 
 		// Prepare a context for current connection.
 		s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -252,7 +257,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 
 		}
 	case *openflow13.ErrorMsg:
-		log.Errorf("Received ofp1.3 error msg: %+v", *t)
+		log.Errorf("Received ofp1.3 error msg, type: %d, code: %d, error data: %+v", t.Type, t.Code, t.Data)
 		result := MessageResult{
 			succeed: false,
 			errType: t.Type,
@@ -262,9 +267,28 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		self.publishMessage(t.Xid, result)
 
 	case *openflow13.VendorHeader:
-		log.Infof("Received Experimenter message: %+v", t)
+		log.Debugf("Received Experimenter message, VendorType: %d, ExperimenterType: %d, VendorData: %+v", t.Vendor, t.ExperimenterType, t.VendorData)
+		switch t.ExperimenterType {
+		case openflow13.Type_TlvTableReply:
+			reply := t.VendorData.(*openflow13.TLVTableReply)
+			status := TLVTableStatus(*reply)
+			self.app.TLVMapReplyRcvd(self, &status)
+		case openflow13.Type_BundleCtrl:
+			result := MessageResult{
+				xID:     t.Header.Xid,
+				succeed: true,
+			}
+			self.publishMessage(t.Header.Xid, result)
+		}
 
 	case *openflow13.SwitchFeatures:
+		switch t.Header.Type {
+		case openflow13.Type_FeaturesReply:
+			swConfig := openflow13.NewSetConfig()
+			swConfig.MissSendLen = 128
+			self.Send(swConfig)
+			self.Send(openflow13.NewSetControllerID(self.ctrlID))
+		}
 
 	case *openflow13.SwitchConfig:
 		switch t.Header.Type {
@@ -303,15 +327,9 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		}
 		// send packet rcvd callback
 		self.app.MultipartReply(self, rep)
-	case *openflow13.BundleControl:
-		result := MessageResult{
-			xID:     t.Xid,
-			succeed: true,
-		}
-		self.publishMessage(t.Xid, result)
-	case *openflow13.BundleError:
+	case *openflow13.VendorError:
 		errData := t.ErrorMsg.Data.Bytes()
-		log.Errorf("Received bundle error msg: %+v", errData)
+		log.Errorf("Received Vendor error msg: %+v", errData)
 		result := MessageResult{
 			succeed:      false,
 			errType:      t.Type,
@@ -320,8 +338,9 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 			xID:          t.Xid,
 		}
 		experimenterID := binary.BigEndian.Uint32(errData[8:12])
-		if experimenterID == openflow13.ONF_EXPERIMENTER_ID {
-			experimenterType := binary.BigEndian.Uint32(errData[12:16])
+		experimenterType := binary.BigEndian.Uint32(errData[12:16])
+		switch experimenterID {
+		case openflow13.ONF_EXPERIMENTER_ID:
 			switch experimenterType {
 			case openflow13.Type_BundleCtrl:
 				self.publishMessage(t.Xid, result)
@@ -329,6 +348,8 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 				bundleID := binary.BigEndian.Uint32(errData[20:24])
 				self.publishMessage(bundleID, result)
 			}
+		case openflow13.NxExperimenterID:
+			log.Errorf("Received Nicira extension error msg: type: %d, code: %d, experimenterID: %d", t.Type, t.Code, t.ExperimenterID)
 		}
 	}
 }
@@ -360,7 +381,7 @@ func (self *OFSwitch) EnableMonitor() {
 	self.monitorEnabled = true
 }
 
-func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *FlowMatch, tableID *uint8) []*openflow13.FlowStats {
+func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *FlowMatch, tableID *uint8) ([]*openflow13.FlowStats, error) {
 	mp := self.getMPReq()
 	replyChan := make(chan *openflow13.MultipartReply)
 	go func() {
@@ -386,16 +407,20 @@ func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *Flow
 		self.mQueue <- mp
 	}()
 
-	reply := <-replyChan
-	flowStates := make([]*openflow13.FlowStats, 0)
-	if reply.Type == openflow13.MultipartType_Flow {
-		flowArr := reply.Body
-		for _, entry := range flowArr {
-			flowStates = append(flowStates, entry.(*openflow13.FlowStats))
+	select {
+	case reply := <-replyChan:
+		flowStates := make([]*openflow13.FlowStats, 0)
+		if reply.Type == openflow13.MultipartType_Flow {
+			flowArr := reply.Body
+			for _, entry := range flowArr {
+				flowStates = append(flowStates, entry.(*openflow13.FlowStats))
+			}
+			return flowStates, nil
 		}
-		return flowStates
+	case <-time.After(2 * time.Second):
+		return nil, errors.New("timeout to wait for MultipartReply message")
 	}
-	return nil
+	return nil, nil
 }
 
 func (self *OFSwitch) CheckStatus(timeout time.Duration) bool {

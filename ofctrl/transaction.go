@@ -86,35 +86,41 @@ func (tx *Transaction) sendControlRequest(xID uint32, msg util.Message) error {
 	}
 }
 
-func (tx *Transaction) newBundleControlMessage(msgType uint16) *openflow13.BundleControl {
-	message := openflow13.NewBundleControl()
-	message.Type = msgType
-	message.Flags = tx.flag.getValue()
-	message.BundleID = tx.ID
+func (tx *Transaction) newBundleControlMessage(msgType uint16) *openflow13.VendorHeader {
+	bundleCtrl := &openflow13.BundleControl{
+		BundleID: tx.ID,
+		Type:     msgType,
+		Flags:    tx.flag.getValue(),
+	}
+	message := openflow13.NewBundleControl(bundleCtrl)
 	return message
 }
 
-func (tx *Transaction) createBundleAddMessage(mod OpenFlowModMessage) (*openflow13.BundleAdd, error) {
-	message := openflow13.NewBundleAdd()
-	message.BundleID = tx.ID
-	message.Flags = tx.flag.getValue()
-	message.Message = mod.resetXid(message.Xid)
+func (tx *Transaction) createBundleAddMessage(mod OpenFlowModMessage) (*openflow13.VendorHeader, error) {
+	bundleAdd := &openflow13.BundleAdd{
+		BundleID: tx.ID,
+		Flags:    tx.flag.getValue(),
+	}
+	message := openflow13.NewBundleAdd(bundleAdd)
+	bundleAdd.Message = mod.resetXid(message.Header.Xid)
 	return message, nil
 }
 
-func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (*openflow13.BundleAdd, error) {
-	message := openflow13.NewBundleAdd()
-	message.BundleID = tx.ID
-	message.Flags = tx.flag.getValue()
-	flowMod.Xid = message.Xid
-	message.Message = flowMod
+func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (*openflow13.VendorHeader, error) {
+	bundleAdd := &openflow13.BundleAdd{
+		BundleID: tx.ID,
+		Flags:    tx.flag.getValue(),
+	}
+	message := openflow13.NewBundleAdd(bundleAdd)
+	flowMod.Xid = message.Header.Xid
+	bundleAdd.Message = flowMod
 	return message, nil
 }
 
 // Begin opens a bundle configuration.
 func (tx *Transaction) Begin() error {
 	message := tx.newBundleControlMessage(openflow13.OFPBCT_OPEN_REQUEST)
-	err := tx.sendControlRequest(message.Xid, message)
+	err := tx.sendControlRequest(message.Header.Xid, message)
 	if err != nil {
 		return err
 	}
@@ -148,7 +154,7 @@ func (tx *Transaction) AddFlow(flowMod *openflow13.FlowMod) error {
 		return err
 	}
 	tx.lock.Lock()
-	tx.successAdd[message.Xid] = true
+	tx.successAdd[message.Header.Xid] = true
 	tx.lock.Unlock()
 	return tx.ofSwitch.Send(message)
 }
@@ -160,7 +166,7 @@ func (tx *Transaction) AddMessage(modMessage OpenFlowModMessage) error {
 		return err
 	}
 	tx.lock.Lock()
-	tx.successAdd[message.Xid] = true
+	tx.successAdd[message.Header.Xid] = true
 	tx.lock.Unlock()
 	return tx.ofSwitch.Send(message)
 }
@@ -169,7 +175,7 @@ func (tx *Transaction) AddMessage(modMessage OpenFlowModMessage) error {
 func (tx *Transaction) Complete() (int, error) {
 	if !tx.closed {
 		msg1 := tx.newBundleControlMessage(openflow13.OFPBCT_CLOSE_REQUEST)
-		if err := tx.sendControlRequest(msg1.Xid, msg1); err != nil {
+		if err := tx.sendControlRequest(msg1.Header.Xid, msg1); err != nil {
 			return 0, err
 		}
 		close(tx.addErrorCh)
@@ -184,7 +190,7 @@ func (tx *Transaction) Commit() error {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_COMMIT_REQUEST)
-	if err := tx.sendControlRequest(msg.Xid, msg); err != nil {
+	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
 		return err
 	}
 	return nil
@@ -196,7 +202,7 @@ func (tx *Transaction) Abort() error {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_DISCARD_REQUEST)
-	if err := tx.sendControlRequest(msg.Xid, msg); err != nil {
+	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
 		return err
 	}
 	return nil

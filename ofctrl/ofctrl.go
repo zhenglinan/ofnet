@@ -18,6 +18,7 @@ package ofctrl
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -52,6 +53,8 @@ type AppInterface interface {
 
 	// Controller received a multi-part reply from the switch
 	MultipartReply(sw *OFSwitch, rep *openflow13.MultipartReply)
+
+	TLVMapReplyRcvd(ofSwitch *OFSwitch, status *TLVTableStatus)
 }
 
 type ConnectionRetryControl interface {
@@ -82,12 +85,15 @@ type Controller struct {
 	connectMode ConnectionMode
 	connCh      chan int      // Channel to control the UDS connection between controller and OFSwitch
 	exitCh      chan struct{} // Channel to stop the Controller
+
+	id uint16
 }
 
 // Create a new controller
 func NewController(app AppInterface) *Controller {
 	c := new(Controller)
 	c.connectMode = ServerMode
+	c.id = uint16(rand.Uint32())
 
 	// for debug logs
 	// log.SetLevel(log.DebugLevel)
@@ -285,7 +291,7 @@ func (c *Controller) handleConnection(conn net.Conn) {
 				if c.connectMode == ClientMode {
 					reConnChan = c.connCh
 				}
-				NewSwitch(stream, m.DPID, c.app, reConnChan)
+				NewSwitch(stream, m.DPID, c.app, reConnChan, c.id)
 
 				// Let switch instance handle all future messages..
 				return

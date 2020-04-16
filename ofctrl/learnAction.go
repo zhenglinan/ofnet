@@ -100,6 +100,10 @@ func (l *FlowLearn) GetActionMessage() openflow13.Action {
 	return learnAction
 }
 
+func (l *FlowLearn) GetActionType() string {
+	return ActTypeNXLearn
+}
+
 func (l *FlowLearn) DeleteLearnedFlowsAfterDeletion() {
 	l.flags |= openflow13.NX_LEARN_F_DELETE_LEARNED
 }

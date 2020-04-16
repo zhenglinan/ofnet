@@ -37,10 +37,14 @@ type OfActor struct {
 	inputTable     *Table
 	nextTable      *Table
 	connectedCount int
+
+	pktInCount     int
+	tlvTableStatus *TLVTableStatus
+	tlvMapCh       chan struct{}
 }
 
 func (o *OfActor) PacketRcvd(sw *OFSwitch, packet *PacketIn) {
-	log.Printf("App: Received packet: %+v", packet)
+	log.Printf("App: Received packet: %+v", packet.Data.Data)
 }
 
 func (o *OfActor) SwitchConnected(sw *OFSwitch) {
@@ -59,6 +63,14 @@ func (o *OfActor) MultipartReply(sw *OFSwitch, rep *openflow13.MultipartReply) {
 func (o *OfActor) SwitchDisconnected(sw *OFSwitch) {
 	log.Printf("App: Switch disconnected: %v", sw.DPID())
 	o.isSwitchConnected = false
+}
+
+func (o *OfActor) TLVMapReplyRcvd(sw *OFSwitch, tlvTableStatus *TLVTableStatus) {
+	log.Printf("App: Receive TLVMapTable reply: %s", tlvTableStatus)
+	o.tlvTableStatus = tlvTableStatus
+	if o.tlvMapCh != nil {
+		close(o.tlvMapCh)
+	}
 }
 
 var ofActor OfActor
@@ -140,7 +152,7 @@ func ofctlDumpFlowMatch(brName string, tableId int, matchStr, actStr string) boo
 
 // Test if OVS switch connects successfully
 func TestMain(m *testing.M) {
-	// Create a controller
+	//Create a controller
 	ctrler = NewController(&ofActor)
 	ofActor2 = OfActor{}
 	ctrler2 = NewController(&ofActor2)
@@ -204,15 +216,16 @@ func TestMain(m *testing.M) {
 	exitCode := m.Run()
 
 	// delete the bridge
-	err = ovsDriver.DeleteBridge("ovsbr11")
-	if err != nil {
-		log.Fatalf("Error deleting the bridge. Err: %v", err)
-	}
+	for _, br := range []string{
+		"ovsbr11",
+		"ovsbr12",
+	} {
+		err = ovsDriver.DeleteBridge(br)
+		if err != nil {
+			log.Fatalf("Error deleting the bridge. Err: %v", err)
+		}
 
-	//err = ovsDriver2.DeleteBridge("ovsbr12")
-	//if err != nil {
-	//	log.Fatalf("Error deleting the bridge. Err: %v", err)
-	//}
+	}
 
 	os.Exit(exitCode)
 }
@@ -767,7 +780,8 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 
 	cookieID := roundID | categoryID
 	cookieMask := uint64(0xffffff)
-	stats := ofActor2.Switch.DumpFlowStats(cookieID, cookieMask, nil, nil)
+	stats, err := ofActor2.Switch.DumpFlowStats(cookieID, cookieMask, nil, nil)
+	require.Nil(t, err)
 	if stats == nil {
 		t.Fatalf("Failed to dump flows")
 	}
@@ -803,7 +817,7 @@ func TestReconnectOFSwitch(t *testing.T) {
 		}
 		ctrl.Delete()
 	}()
-	assert.Equal(t, ofActor2.connectedCount, 1)
+	assert.Equal(t, app.connectedCount, 1)
 	go func() {
 		ovsBr.DeleteBridge(brName)
 		select {
@@ -912,7 +926,7 @@ func TestBundles(t *testing.T) {
 	fm4, err := flow4.GetBundleMessage(openflow13.FC_ADD)
 	require.Nil(t, err, "Failed to generate FlowMod from Flow")
 	message, _ := tx3.createBundleAddMessage(fm4)
-	message.Xid = uint32(100001)
+	message.Header.Xid = uint32(100001)
 	tx3.ofSwitch.Send(message)
 	count, err = tx3.Complete()
 	require.Nil(t, err, fmt.Sprintf("Failed to find addMesssage errors transaction: %v", err))
@@ -1016,8 +1030,6 @@ func TestNotes(t *testing.T) {
 
 func TestNewFlowActionAPIs(t *testing.T) {
 	ofApp := ofActor2
-
-	// Test action: load mac to src mac
 	brName := ovsDriver2.OvsBridgeName
 	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
 	ofApp.Switch.EnableMonitor()
@@ -1330,6 +1342,72 @@ func TestNewFlowActionAPIs(t *testing.T) {
 		"group:1")
 	group1.Delete()
 	verifyGroup(t, brName, group1, "select", "bucket=weight:50,actions=ct(commit,nat(src=10.0.0.240,random))", false)
+}
+
+func TestSetTunnelMetadata(t *testing.T) {
+	ofApp := ofActor2
+	brName := ovsDriver2.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
+	ofApp.Switch.EnableMonitor()
+
+	ch := make(chan struct{})
+	ofActor.tlvMapCh = ch
+	err := ofActor.Switch.RequestTlvMap()
+	require.Nil(t, err)
+	<-ch
+
+	tlvMap := &openflow13.TLVTableMap{OptClass: 0xff01, OptType: 0, OptLength: 4, Index: 0}
+	err = ofApp.Switch.AddTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
+	require.Nil(t, err)
+
+	inPort9 := uint32(111)
+	flow14 := &Flow{
+		Table: ofApp.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			InputPort: inPort9,
+		},
+	}
+	rng14 := openflow13.NewNXRange(8, 15)
+	loadReg2, err := NewNXLoadAction("NXM_NX_TUN_METADATA0", uint64(0x12), rng14)
+	require.Nil(t, err)
+	flow14.ApplyActions([]OFAction{loadReg2})
+	verifyNewFlowInstallAndDelete(t, flow14, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,in_port=111",
+		"set_field:0x1200/0xff00->tun_metadata0")
+
+	inPort10 := uint32(112)
+	rng15 := openflow13.NewNXRange(8, 23)
+
+	flow15 := &Flow{
+		Table: ofApp.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			InputPort: inPort10,
+			Ethertype: 0x0800,
+			TunMetadatas: []*NXTunMetadata{
+				{
+					ID:    0,
+					Data:  uint32(0x34),
+					Range: rng15,
+				}},
+		},
+	}
+	flow15.Goto(ofApp.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow15, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,tun_metadata0=0x3400/0xffff00,in_port=112",
+		"goto_table:1")
+
+	err = ofApp.Switch.DeleteTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
+	require.Nil(t, err)
+}
+
+func TestGetMaskBytes(t *testing.T) {
+	rngBytes := getMaskBytes(8, 16)
+	assert.Equal(t, 4, len(rngBytes))
+	maskString := fmt.Sprintf("0x%x", rngBytes)
+	assert.Equal(t, "0x00ffff00", maskString)
 }
 
 func testNXExtensionNote(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
@@ -1834,7 +1912,7 @@ func TestWriteactionsFlows(t *testing.T) {
 	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
 	ofApp.Switch.EnableMonitor()
 
-    // Test dnatTable flow using write_actions
+	// Test dnatTable flow using write_actions
 	ipDa1 := net.ParseIP("10.96.0.0")
 	ipAddrMask1 := net.ParseIP("255.240.0.0")
 	flow1 := &Flow{
@@ -1900,8 +1978,8 @@ func TestWriteactionsFlows(t *testing.T) {
 	flow3 := &Flow{
 		Table: ofApp.inputTable,
 		Match: FlowMatch{
-			Priority:  200,
-			MacDa: &macDa3,
+			Priority: 200,
+			MacDa:    &macDa3,
 		},
 	}
 
@@ -1918,23 +1996,23 @@ func TestWriteactionsFlows(t *testing.T) {
 		"priority=200,dl_dst=11:11:11:11:11:11",
 		"load:0x1->NXM_NX_REG0[16],write_actions(output:1),goto_table:1")
 
-    // Test ingressrule table flow with actset_output
-    actsetOutput4 := uint32(105)
-    flow4 := &Flow{
+	// Test ingressrule table flow with actset_output
+	actsetOutput4 := uint32(105)
+	flow4 := &Flow{
 		Table: ofApp.inputTable,
-        Match: FlowMatch{
-            Priority:  200,
-            Ethertype: 0x0800,
-            ActsetOutput: actsetOutput4,
-        },
-    }
+		Match: FlowMatch{
+			Priority:     200,
+			Ethertype:    0x0800,
+			ActsetOutput: actsetOutput4,
+		},
+	}
 
-    conjunction4, err := NewNXConjunctionAction(uint32(101), uint8(2), uint8(3))
-    require.Nil(t, err)
-    flow4.ApplyActions([]OFAction{conjunction4})
+	conjunction4, err := NewNXConjunctionAction(uint32(101), uint8(2), uint8(3))
+	require.Nil(t, err)
+	flow4.ApplyActions([]OFAction{conjunction4})
 
-    verifyNewFlowInstallAndDelete(t, flow4, brName, ofApp.inputTable.TableId,
-        "priority=200,ip,actset_output=2",
-        "conjunction(101,2/3)")
+	verifyNewFlowInstallAndDelete(t, flow4, brName, ofApp.inputTable.TableId,
+		"priority=200,actset_output=105,ip",
+		"conjunction(101,2/3)")
 
 }

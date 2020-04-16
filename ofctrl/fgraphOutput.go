@@ -76,6 +76,10 @@ func (self *Output) GetActionMessage() openflow13.Action {
 	return nil
 }
 
+func (self *Output) GetActionType() string {
+	return ActTypeOutput
+}
+
 func NewOutputInPort() *Output {
 	return &Output{outputType: "inPort", portNo: openflow13.P_IN_PORT}
 }
@@ -86,4 +90,8 @@ func NewOutputNormal() *Output {
 
 func NewOutputPort(portNo uint32) *Output {
 	return &Output{outputType: "port", portNo: portNo}
+}
+
+func NewOutputController() *Output {
+	return &Output{outputType: "toController"}
 }

@@ -11,7 +11,7 @@ type NXOutput struct {
 
 // Fgraph element type for the NXOutput
 func (self *NXOutput) Type() string {
-	return "NxOutput"
+	return "nxOutput"
 }
 
 // instruction set for NXOutput element
@@ -28,6 +28,10 @@ func (self *NXOutput) GetActionMessage() openflow13.Action {
 	targetField := self.field
 	// Create NX output Register action
 	return openflow13.NewOutputFromField(targetField, ofsNbits)
+}
+
+func (self *NXOutput) GetActionType() string {
+	return ActTypeNXOutput
 }
 
 func NewNXOutput(name string, start int, end int) (*NXOutput, error) {

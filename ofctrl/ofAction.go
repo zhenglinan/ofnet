@@ -8,8 +8,47 @@ import (
 	"github.com/contiv/libOpenflow/openflow13"
 )
 
+const (
+	ActTypeSetVlan        = "setVlan"
+	ActTypePopVlan        = "popVlan"
+	ActTypeSetDstMac      = "setMacDa"
+	ActTypeSetSrcMac      = "setMacSa"
+	ActTypeSetTunnelID    = "setTunnelId"
+	ActTypeMetatdata      = "setMetadata"
+	ActTypeSetSrcIP       = "setIPSa"
+	ActTypeSetDstIP       = "setIPDa"
+	ActTypeSetTunnelSrcIP = "setTunSa"
+	ActTypeSetTunnelDstIP = "setTunDa"
+	ActTypeSetDSCP        = "setDscp"
+	ActTypeSetARPOper     = "setARPOper"
+	ActTypeSetARPSHA      = "setARPSha"
+	ActTypeSetARPTHA      = "setARPTha"
+	ActTypeSetARPSPA      = "setARPSpa"
+	ActTypeSetARPTPA      = "setARPTpa"
+	ActTypeSetTCPsPort    = "setTCPSrc"
+	ActTypeSetTCPdPort    = "setTCPDst"
+	ActTypeSetTCPFlags    = "setTCPFlags"
+	ActTypeSetUDPsPort    = "setUDPSrc"
+	ActTypeSetUDPdPort    = "setUDPDst"
+	ActTypeSetSCTPsPort   = "setSCTPSrc"
+	ActTypeSetSCTPdPort   = "setSCTPDst"
+	ActTypeNXLoad         = "loadReg"
+	ActTypeNXMove         = "moveReg"
+	ActTypeNXCT           = "ct"
+	ActTypeNXConjunction  = "conjunction"
+	ActTypeDecTTL         = "decTTL"
+	ActTypeNXResubmit     = "resubmit"
+	ActTypeGroup          = "group"
+	ActTypeNXLearn        = "learn"
+	ActTypeNXNote         = "note"
+	ActTypeController     = "controller"
+	ActTypeOutput         = "output"
+	ActTypeNXOutput       = "nxOutput"
+)
+
 type OFAction interface {
 	GetActionMessage() openflow13.Action
+	GetActionType() string
 }
 
 type SetVLANAction struct {
@@ -21,11 +60,19 @@ func (a *SetVLANAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetVLANAction) GetActionType() string {
+	return ActTypeSetVlan
+}
+
 type PopVLANAction struct {
 }
 
 func (a *PopVLANAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionPopVlan()
+}
+
+func (a *PopVLANAction) GetActionType() string {
+	return ActTypePopVlan
 }
 
 type SetSrcMACAction struct {
@@ -37,6 +84,10 @@ func (a *SetSrcMACAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetSrcMACAction) GetActionType() string {
+	return ActTypeSetSrcMac
+}
+
 type SetDstMACAction struct {
 	MAC net.HardwareAddr
 }
@@ -44,6 +95,10 @@ type SetDstMACAction struct {
 func (a *SetDstMACAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewEthDstField(a.MAC, nil)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetDstMACAction) GetActionType() string {
+	return ActTypeSetDstMac
 }
 
 type SetTunnelIDAction struct {
@@ -55,6 +110,10 @@ func (a *SetTunnelIDAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetTunnelIDAction) GetActionType() string {
+	return ActTypeSetTunnelID
+}
+
 type SetTunnelDstAction struct {
 	IP net.IP
 }
@@ -62,6 +121,10 @@ type SetTunnelDstAction struct {
 func (a *SetTunnelDstAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewTunnelIpv4DstField(a.IP, nil)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetTunnelDstAction) GetActionType() string {
+	return ActTypeSetTunnelDstIP
 }
 
 type SetTunnelSrcAction struct {
@@ -73,6 +136,10 @@ func (a *SetTunnelSrcAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetTunnelSrcAction) GetActionType() string {
+	return ActTypeSetTunnelSrcIP
+}
+
 type SetDstIPAction struct {
 	IP net.IP
 }
@@ -80,6 +147,10 @@ type SetDstIPAction struct {
 func (a *SetDstIPAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewIpv4DstField(a.IP, nil)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetDstIPAction) GetActionType() string {
+	return ActTypeSetDstIP
 }
 
 type SetSrcIPAction struct {
@@ -91,6 +162,10 @@ func (a *SetSrcIPAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetSrcIPAction) GetActionType() string {
+	return ActTypeSetSrcIP
+}
+
 type SetDSCPAction struct {
 	Value uint8
 }
@@ -98,6 +173,10 @@ type SetDSCPAction struct {
 func (a *SetDSCPAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewIpDscpField(a.Value)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetDSCPAction) GetActionType() string {
+	return ActTypeSetDSCP
 }
 
 type SetARPOpAction struct {
@@ -109,6 +188,10 @@ func (a *SetARPOpAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetARPOpAction) GetActionType() string {
+	return ActTypeSetARPOper
+}
+
 type SetARPShaAction struct {
 	MAC net.HardwareAddr
 }
@@ -116,6 +199,10 @@ type SetARPShaAction struct {
 func (a *SetARPShaAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewArpShaField(a.MAC)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetARPShaAction) GetActionType() string {
+	return ActTypeSetARPSHA
 }
 
 type SetARPThaAction struct {
@@ -127,6 +214,10 @@ func (a *SetARPThaAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetARPThaAction) GetActionType() string {
+	return ActTypeSetARPTHA
+}
+
 type SetARPSpaAction struct {
 	IP net.IP
 }
@@ -134,6 +225,10 @@ type SetARPSpaAction struct {
 func (a *SetARPSpaAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewArpSpaField(a.IP)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetARPSpaAction) GetActionType() string {
+	return ActTypeSetARPSPA
 }
 
 type SetARPTpaAction struct {
@@ -145,6 +240,10 @@ func (a *SetARPTpaAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetARPTpaAction) GetActionType() string {
+	return ActTypeSetARPTPA
+}
+
 type SetTCPSrcPortAction struct {
 	Port uint16
 }
@@ -154,6 +253,10 @@ func (a *SetTCPSrcPortAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetTCPSrcPortAction) GetActionType() string {
+	return ActTypeSetTCPsPort
+}
+
 type SetTCPDstPortAction struct {
 	Port uint16
 }
@@ -161,6 +264,10 @@ type SetTCPDstPortAction struct {
 func (a *SetTCPDstPortAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewTcpDstField(a.Port)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetTCPDstPortAction) GetActionType() string {
+	return ActTypeSetTCPdPort
 }
 
 type SetTCPFlagsAction struct {
@@ -173,6 +280,10 @@ func (a *SetTCPFlagsAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetTCPFlagsAction) GetActionType() string {
+	return ActTypeSetTCPFlags
+}
+
 type SetUDPSrcPortAction struct {
 	Port uint16
 }
@@ -180,6 +291,10 @@ type SetUDPSrcPortAction struct {
 func (a *SetUDPSrcPortAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewUdpSrcField(a.Port)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetUDPSrcPortAction) GetActionType() string {
+	return ActTypeSetUDPsPort
 }
 
 type SetUDPDstPortAction struct {
@@ -191,6 +306,10 @@ func (a *SetUDPDstPortAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetUDPDstPortAction) GetActionType() string {
+	return ActTypeSetUDPdPort
+}
+
 type SetSCTPSrcAction struct {
 	Port uint16
 }
@@ -198,6 +317,10 @@ type SetSCTPSrcAction struct {
 func (a *SetSCTPSrcAction) GetActionMessage() openflow13.Action {
 	field := openflow13.NewSctpSrcField(a.Port)
 	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetSCTPSrcAction) GetActionType() string {
+	return ActTypeSetSCTPsPort
 }
 
 type SetSCTPDstAction struct {
@@ -209,6 +332,10 @@ func (a *SetSCTPDstAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionSetField(*field)
 }
 
+func (a *SetSCTPDstAction) GetActionType() string {
+	return ActTypeSetSCTPdPort
+}
+
 type NXLoadAction struct {
 	Field *openflow13.MatchField
 	Value uint64
@@ -218,6 +345,10 @@ type NXLoadAction struct {
 func (a *NXLoadAction) GetActionMessage() openflow13.Action {
 	ofsNbits := a.Range.ToOfsBits()
 	return openflow13.NewNXActionRegLoad(ofsNbits, a.Field, a.Value)
+}
+
+func (a *NXLoadAction) GetActionType() string {
+	return ActTypeNXLoad
 }
 
 func NewNXLoadAction(fieldName string, data uint64, dataRange *openflow13.NXRange) (*NXLoadAction, error) {
@@ -242,6 +373,10 @@ type NXMoveAction struct {
 
 func (a *NXMoveAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewNXActionRegMove(a.MoveNbits, a.SrcStart, a.DstStart, a.SrcField, a.DstField)
+}
+
+func (a *NXMoveAction) GetActionType() string {
+	return ActTypeNXMove
 }
 
 func NewNXMoveAction(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange) (*NXMoveAction, error) {
@@ -297,6 +432,10 @@ func (a *NXConnTrackAction) GetActionMessage() openflow13.Action {
 	return ctAction
 }
 
+func (a *NXConnTrackAction) GetActionType() string {
+	return ActTypeNXCT
+}
+
 func NewNXConnTrackAction(commit bool, force bool, table *uint8, zone *uint16, actions ...openflow13.Action) *NXConnTrackAction {
 	return &NXConnTrackAction{
 		commit:  commit,
@@ -315,6 +454,10 @@ type NXConjunctionAction struct {
 
 func (a *NXConjunctionAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewNXActionConjunction(a.Clause, a.NClause, a.ID)
+}
+
+func (a *NXConjunctionAction) GetActionType() string {
+	return ActTypeNXConjunction
 }
 
 func NewNXConjunctionAction(conjID uint32, clause uint8, nClause uint8) (*NXConjunctionAction, error) {
@@ -340,6 +483,10 @@ func (a *DecTTLAction) GetActionMessage() openflow13.Action {
 	return openflow13.NewActionDecNwTtl()
 }
 
+func (a *DecTTLAction) GetActionType() string {
+	return ActTypeDecTTL
+}
+
 type NXNoteAction struct {
 	Notes []byte
 }
@@ -348,4 +495,24 @@ func (a *NXNoteAction) GetActionMessage() openflow13.Action {
 	noteAction := openflow13.NewNXActionNote()
 	noteAction.Note = a.Notes
 	return noteAction
+}
+
+func (a *NXNoteAction) GetActionType() string {
+	return ActTypeNXNote
+}
+
+type NXController struct {
+	ControllerID uint16
+	Reason       uint8
+}
+
+func (a *NXController) GetActionMessage() openflow13.Action {
+	action := openflow13.NewNXActionController(a.ControllerID)
+	action.MaxLen = 128
+	action.Reason = a.Reason
+	return action
+}
+
+func (a *NXController) GetActionType() string {
+	return ActTypeController
 }
