@@ -806,7 +806,8 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 		case "loadReg":
 			// Create NX load action
-			loadRegAction := flowAction.loadAct.GetActionMessage()
+			loadAct := flowAction.loadAct
+			loadRegAction := loadAct.GetActionMessage()
 
 			// Add load action to the instruction
 			err = actInstr.AddAction(loadRegAction, true)
@@ -1409,12 +1410,14 @@ func (self *Flow) SetARPTha(arpTha net.HardwareAddr) error {
 }
 
 // Special Actions on the flow to load data into OXM/NXM field
-func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.NXRange) error {
+func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.NXRange, varLenght bool) error {
 	loadAct, err := NewNXLoadAction(fieldName, data, dataRange)
 	if err != nil {
 		return err
 	}
-
+	if varLenght {
+		self.Table.Switch.ResetFieldLength(loadAct.Field)
+	}
 	action := new(FlowAction)
 	action.ActionType = "loadReg"
 	action.loadAct = loadAct
@@ -1432,10 +1435,14 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 }
 
 // Special Actions on the flow to move data from src_field[rng] to dst_field[rng]
-func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange) error {
+func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange, varLength bool) error {
 	moveAct, err := NewNXMoveAction(srcName, dstName, srcRange, dstRange)
 	if err != nil {
 		return err
+	}
+	if varLength {
+		self.Table.Switch.ResetFieldLength(moveAct.SrcField)
+		self.Table.Switch.ResetFieldLength(moveAct.DstField)
 	}
 
 	action := new(FlowAction)

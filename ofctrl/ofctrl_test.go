@@ -78,7 +78,7 @@ var ctrler *Controller
 var ovsDriver *OvsDriver
 
 // Controller/Application/ovsBr work on clientMode
-var ofActor2 OfActor
+var ofActor2 *OfActor
 var ctrler2 *Controller
 var ovsDriver2 *OvsDriver
 
@@ -154,8 +154,8 @@ func ofctlDumpFlowMatch(brName string, tableId int, matchStr, actStr string) boo
 func TestMain(m *testing.M) {
 	//Create a controller
 	ctrler = NewController(&ofActor)
-	ofActor2 = OfActor{}
-	ctrler2 = NewController(&ofActor2)
+	ofActor2 = new(OfActor)
+	ctrler2 = NewController(ofActor2)
 
 	// start listening
 	go ctrler.Listen(":6733")
@@ -1016,7 +1016,7 @@ func createFlow(t *testing.T, mac, ip string) *Flow {
 
 // Test Nicira extensions for match field and actions
 func TestNXExtension(t *testing.T) {
-	testNXExtensionsWithOFApplication(ofActor, ovsDriver, t)
+	testNXExtensionsWithOFApplication(&ofActor, ovsDriver, t)
 	testNXExtensionsWithOFApplication(ofActor2, ovsDriver2, t)
 }
 
@@ -1351,14 +1351,15 @@ func TestSetTunnelMetadata(t *testing.T) {
 	ofApp.Switch.EnableMonitor()
 
 	ch := make(chan struct{})
-	ofActor.tlvMapCh = ch
-	err := ofActor.Switch.RequestTlvMap()
+	ofApp.tlvMapCh = ch
+	err := ofApp.Switch.RequestTlvMap()
 	require.Nil(t, err)
 	<-ch
 
 	tlvMap := &openflow13.TLVTableMap{OptClass: 0xff01, OptType: 0, OptLength: 4, Index: 0}
 	err = ofApp.Switch.AddTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
 	require.Nil(t, err)
+	ofApp.Switch.tlvTableStatus.AddTLVMap(tlvMap)
 
 	inPort9 := uint32(111)
 	flow14 := &Flow{
@@ -1394,10 +1395,15 @@ func TestSetTunnelMetadata(t *testing.T) {
 				}},
 		},
 	}
+	rng16 := openflow13.NewNXRange(28, 31)
+	moveAction, err := NewNXMoveAction("NXM_NX_TUN_METADATA0", "NXM_NX_REG0", rng16, rng16)
+	require.Nil(t, err)
+	ofApp.Switch.ResetFieldLength(moveAction.SrcField)
+	flow15.ApplyActions([]OFAction{moveAction})
 	flow15.Goto(ofApp.nextTable.TableId)
 	verifyNewFlowInstallAndDelete(t, flow15, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,tun_metadata0=0x3400/0xffff00,in_port=112",
-		"goto_table:1")
+		"move:NXM_NX_TUN_METADATA0[28..31]->NXM_NX_REG0[28..31],goto_table:1")
 
 	err = ofApp.Switch.DeleteTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
 	require.Nil(t, err)
@@ -1410,7 +1416,7 @@ func TestGetMaskBytes(t *testing.T) {
 	assert.Equal(t, "0x00ffff00", maskString)
 }
 
-func testNXExtensionNote(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
+func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on Table %d in bridge %s", ofApp.inputTable.TableId, brName)
 	ofApp.Switch.EnableMonitor()
@@ -1431,7 +1437,7 @@ func testNXExtensionNote(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
 
 }
 
-func testNXExtensionLearn(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
+func testNXExtensionLearn(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on Table %d in bridge %s", ofApp.inputTable.TableId, brName)
 	ofApp.Switch.EnableMonitor()
@@ -1487,7 +1493,7 @@ func testNXExtensionLearn(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
 
 }
 
-func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testing.T) {
+func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	// Test action: load mac to src mac
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
@@ -1506,7 +1512,7 @@ func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testi
 	}
 	newSrcMac := uint64(0x111111222222)
 	rng1 := openflow13.NewNXRange(0, 47)
-	err = flow1.LoadReg("OXM_OF_ETH_SRC", newSrcMac, rng1)
+	err = flow1.LoadReg("OXM_OF_ETH_SRC", newSrcMac, rng1, false)
 	if err != nil {
 		t.Errorf("Failed to load data into field OXM_OF_ETH_SRC: %+v", err)
 	}
@@ -1526,7 +1532,7 @@ func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testi
 		t.Fatalf("Failed to generate flow: %+v", flow2)
 	}
 	rng2 := openflow13.NewNXRange(0, 47)
-	err = flow2.MoveRegs("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2)
+	err = flow2.MoveRegs("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2, false)
 	if err != nil {
 		t.Errorf("Failed to move data from NXM_OF_ETH_SRC to NXM_OF_ETH_DST: %+v", err)
 	}
@@ -1643,9 +1649,9 @@ func testNXExtensionsWithOFApplication(ofApp OfActor, ovsBr *OvsDriver, t *testi
 	rng4 := openflow13.NewNXRange(0, 31)
 	sMAC, _ := net.ParseMAC("11:11:11:11:11:22")
 	sIP := net.ParseIP("192.168.1.100")
-	_ = flow7.MoveRegs("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2)
-	_ = flow7.MoveRegs("NXM_NX_ARP_SHA", "NXM_NX_ARP_THA", rng2, rng2)
-	_ = flow7.MoveRegs("NXM_OF_ARP_SPA", "NXM_OF_ARP_TPA", rng4, rng4)
+	_ = flow7.MoveRegs("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2, false)
+	_ = flow7.MoveRegs("NXM_NX_ARP_SHA", "NXM_NX_ARP_THA", rng2, rng2, false)
+	_ = flow7.MoveRegs("NXM_OF_ARP_SPA", "NXM_OF_ARP_TPA", rng4, rng4, false)
 	_ = flow7.SetARPOper(2)
 	_ = flow7.SetMacSa(sMAC)
 	_ = flow7.SetARPSha(sMAC)

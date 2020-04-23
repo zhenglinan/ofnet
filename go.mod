@@ -16,4 +16,4 @@ require (
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 )
 
-replace github.com/contiv/libOpenflow => github.com/wenyingd/libOpenflow v0.0.0-20200417045933-81b845c5c32e
+replace github.com/contiv/libOpenflow => github.com/wenyingd/libOpenflow v0.0.0-20200423142301-fac2368f3975

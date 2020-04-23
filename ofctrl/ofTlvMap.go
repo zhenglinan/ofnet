@@ -74,3 +74,18 @@ func (s *OFSwitch) RequestTlvMap() error {
 	}
 	return nil
 }
+
+func (s *OFSwitch) ResetFieldLength(field *openflow13.MatchField) *openflow13.MatchField {
+	if s.tlvTableStatus == nil {
+		return field
+	}
+	if field.Field < openflow13.NXM_NX_TUN_METADATA0 || field.Field > openflow13.NXM_NX_TUN_METADATA7 {
+		return field
+	}
+	index := field.Field - openflow13.NXM_NX_TUN_METADATA0
+	m := s.tlvTableStatus.GetTLVMap(uint16(index))
+	if m != nil {
+		field.Length = m.OptLength
+	}
+	return field
+}

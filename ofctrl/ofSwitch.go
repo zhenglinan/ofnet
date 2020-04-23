@@ -272,7 +272,8 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		case openflow13.Type_TlvTableReply:
 			reply := t.VendorData.(*openflow13.TLVTableReply)
 			status := TLVTableStatus(*reply)
-			self.app.TLVMapReplyRcvd(self, &status)
+			self.tlvTableStatus = &status
+			self.app.TLVMapReplyRcvd(self, self.tlvTableStatus)
 		case openflow13.Type_BundleCtrl:
 			result := MessageResult{
 				xID:     t.Header.Xid,
