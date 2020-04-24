@@ -1,13 +1,15 @@
 package ofctrl
 
 import (
+	"fmt"
+	"math/rand"
+	"net"
+	"testing"
+
 	"github.com/contiv/libOpenflow/openflow13"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"math/rand"
-	"net"
-	"testing"
 )
 
 type packetApp struct {
@@ -46,6 +48,42 @@ func TestPacketIn_PacketOut(t *testing.T) {
 	assert.Equal(t, 0, app.pktInCount)
 	testPacketInOut(t, app, brName)
 	assert.Equal(t, 1, app.pktInCount)
+}
+
+func TestNxOutputAndSendController(t *testing.T) {
+	app := new(packetApp)
+	app.OfActor = new(OfActor)
+	app.pktCh = make(chan *PacketIn)
+	ctrl := NewController(app)
+	brName := "br4sendcontroller"
+	ovsBr := prepareContollerAndSwitch(t, app.OfActor, ctrl, brName)
+	defer func() {
+		if err := ovsBr.DeleteBridge(brName); err != nil {
+			t.Errorf("Failed to delete br %s: %v", brName, err)
+		}
+		ctrl.Delete()
+	}()
+
+	app.Switch.EnableMonitor()
+	ofSwitch := app.Switch
+	table0 := ofSwitch.DefaultTable()
+	srcMAC, _ := net.ParseMAC("11:22:33:44:55:66")
+	flow1 := &Flow{
+		Table: table0,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			MacSa:     &srcMAC,
+		},
+	}
+	err := flow1.OutputReg("NXM_NX_REG0", 0, 31)
+	require.Nil(t, err)
+	err = flow1.Controller(0x1)
+	require.Nil(t, err)
+	flow1.Send(openflow13.FC_ADD)
+	verifyFlowInstallAndDelete(t, flow1, NewEmptyElem(), brName, table0.TableId,
+		"priority=100,ip,dl_src=11:22:33:44:55:66",
+		fmt.Sprintf("output:NXM_NX_REG0[],controller(max_len=128,id=%d)", app.Switch.ctrlID))
 }
 
 func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {

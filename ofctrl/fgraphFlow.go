@@ -95,6 +95,7 @@ type FlowAction struct {
 	learn      *FlowLearn    // nxm learn action
 	notes      []byte        // data to set in note action
 	controller *NXController // send packet to controller
+	nxOutput   *NXOutput     // output packet to a provided register
 }
 
 // State of a flow entry
@@ -130,6 +131,13 @@ type NXRegister struct {
 	ID    int                 // ID of NXM_NX_REG, value should be from 0 to 15
 	Data  uint32              // Data to cache in register
 	Range *openflow13.NXRange // Range of bits in register
+}
+
+func (r *NXRegister) getShiftedValue() uint32 {
+	if r.Range == nil {
+		return r.Data
+	}
+	return r.Data << r.Range.GetOfs()
 }
 
 type NXTunMetadata struct {
@@ -373,7 +381,17 @@ func (self *Flow) xlateMatch() openflow13.Match {
 
 	// Handle reg match
 	if self.Match.NxRegs != nil {
+		regMap := make(map[int][]*NXRegister)
 		for _, reg := range self.Match.NxRegs {
+			_, found := regMap[reg.ID]
+			if !found {
+				regMap[reg.ID] = []*NXRegister{reg}
+			} else {
+				regMap[reg.ID] = append(regMap[reg.ID], reg)
+			}
+		}
+		for _, regs := range regMap {
+			reg := merge(regs)
 			regField := openflow13.NewRegMatchField(reg.ID, reg.Data, reg.Range)
 			ofMatch.AddField(*regField)
 		}
@@ -407,6 +425,34 @@ func (self *Flow) xlateMatch() openflow13.Match {
 	}
 
 	return *ofMatch
+}
+
+func getRangeEnd(rng *openflow13.NXRange) uint16 {
+	return rng.GetOfs() + rng.GetNbits() - 1
+}
+
+func merge(regs []*NXRegister) *NXRegister {
+	if len(regs) == 1 {
+		return regs[0]
+	}
+	var data uint32
+	min := regs[0].Range.GetOfs()
+	max := getRangeEnd(regs[0].Range)
+	for _, reg := range regs {
+		data |= reg.Data << reg.Range.GetOfs()
+		end := getRangeEnd(reg.Range)
+		if reg.Range.GetOfs() < min {
+			min = reg.Range.GetOfs()
+		}
+		if end > max {
+			max = end
+		}
+	}
+	return &NXRegister{
+		ID:    regs[0].ID,
+		Data:  data,
+		Range: openflow13.NewNXRange(int(min), int(max)),
+	}
 }
 
 func getDataBytes(value interface{}, nxRange *openflow13.NXRange) []byte {
@@ -898,6 +944,16 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added note Action: %+v", noteAction)
+		case "nxOutput":
+			nxOutput := flowAction.nxOutput
+			// Add NXOutput action to the instruction
+			err = actInstr.AddAction(nxOutput.GetActionMessage(), true)
+			if err != nil {
+				return err
+			}
+			addActn = true
+
+			log.Debugf("flow action: Added nxOutput Action: %+v", nxOutput)
 		case "controller":
 			act := flowAction.controller
 			err = actInstr.AddAction(act.GetActionMessage(), true)
@@ -986,8 +1042,6 @@ func (self *Flow) GenerateFlowModMessage(commandType int) (flowMod *openflow13.F
 
 				log.Debugf("flow install: added next instr: %+v", instr)
 			}
-		case "nxOutput":
-			fallthrough
 		case "group":
 			fallthrough
 		case "Resubmit":
@@ -1603,6 +1657,27 @@ func (self *Flow) Note(data []byte) error {
 	action := new(FlowAction)
 	action.ActionType = "note"
 	action.notes = data
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	// Add to the action db
+	self.flowActions = append(self.flowActions, action)
+	// If the flow entry was already installed, re-install it
+	if self.isInstalled {
+		return self.install()
+	}
+
+	return nil
+}
+func (self *Flow) OutputReg(name string, start int, end int) error {
+	action := new(FlowAction)
+	action.ActionType = "nxOutput"
+	var err error
+	action.nxOutput, err = NewNXOutput(name, start, end)
+	if err != nil {
+		return err
+	}
+
 	self.lock.Lock()
 	defer self.lock.Unlock()
 

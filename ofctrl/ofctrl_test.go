@@ -796,6 +796,99 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 	}
 }
 
+func TestMultiRangeOneReg(t *testing.T) {
+	ofApp := ofActor2
+	brName := ovsDriver2.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
+	ofApp.Switch.EnableMonitor()
+
+	srcMac1, _ := net.ParseMAC("11:11:11:11:11:11")
+	srcIP1 := net.ParseIP("192.168.2.10")
+	reg01 := &NXRegister{
+		ID:    0,
+		Data:  uint32(0x1),
+		Range: openflow13.NewNXRange(2, 5),
+	}
+	reg02 := &NXRegister{
+		ID:    0,
+		Data:  uint32(0xa),
+		Range: openflow13.NewNXRange(6, 9),
+	}
+
+	flow1 := &Flow{
+		Table: ofApp.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			MacSa:     &srcMac1,
+			IpSa:      &srcIP1,
+			NxRegs:    []*NXRegister{reg01, reg02},
+		},
+	}
+	flow1.Goto(ofApp.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,reg0=0x284/0x3fc,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
+		"goto_table:1")
+
+	reg11 := &NXRegister{
+		ID:    1,
+		Data:  uint32(0x1),
+		Range: openflow13.NewNXRange(0, 3),
+	}
+	reg12 := &NXRegister{
+		ID:    1,
+		Data:  uint32(0xa),
+		Range: openflow13.NewNXRange(4, 7),
+	}
+
+	flow2 := &Flow{
+		Table: ofApp.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			MacSa:     &srcMac1,
+			IpSa:      &srcIP1,
+			NxRegs:    []*NXRegister{reg11, reg12},
+		},
+	}
+	flow2.Goto(ofApp.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow2, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,reg1=0xa1/0xff,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
+		"goto_table:1")
+
+	reg21 := &NXRegister{
+		ID:    2,
+		Data:  uint32(0x1),
+		Range: openflow13.NewNXRange(2, 5),
+	}
+	reg22 := &NXRegister{
+		ID:    2,
+		Data:  uint32(0xa),
+		Range: openflow13.NewNXRange(6, 9),
+	}
+	reg23 := &NXRegister{
+		ID:    2,
+		Data:  uint32(11),
+		Range: openflow13.NewNXRange(10, 13),
+	}
+
+	flow3 := &Flow{
+		Table: ofApp.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			MacSa:     &srcMac1,
+			IpSa:      &srcIP1,
+			NxRegs:    []*NXRegister{reg21, reg23, reg22},
+		},
+	}
+	flow3.Goto(ofApp.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow3, brName, ofApp.inputTable.TableId,
+		"priority=100,ip,reg2=0x2e84/0x3ffc,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
+		"goto_table:1")
+
+}
+
 func (o *OfActor) MaxRetry() int {
 	return 5
 }
@@ -1562,8 +1655,8 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 	if err != nil {
 		t.Fatalf("Failed to generate flow: %+v", flow4)
 	}
-	nxRegOutput, _ := NewNXOutput("NXM_NX_REG1", 5, 10)
-	verifyFlowInstallAndDelete(t, flow4, nxRegOutput, brName, ofApp.inputTable.TableId,
+	flow4.OutputReg("NXM_NX_REG1", 5, 10)
+	verifyFlowInstallAndDelete(t, flow4, NewEmptyElem(), brName, ofApp.inputTable.TableId,
 		"priority=100,in_port=4",
 		"output:NXM_NX_REG1[5..10]")
 

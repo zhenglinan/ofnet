@@ -4,8 +4,8 @@ github.com/cenkalti/hub v1.0.1-0.20140529221144-7be60e186e66 h1:mqwgWF7yBJ/zOFlW
 github.com/cenkalti/hub v1.0.1-0.20140529221144-7be60e186e66/go.mod h1:tcYwtS3a2d9NO/0xDXVJWx3IedurUjYCqFCmpi0lpHs=
 github.com/cenkalti/rpc2 v0.0.0-20140912135055-44d0d95e4f52 h1:LnaEnQZECBs+zizOdhjYpYAfshAmeQa3556LlhONGUs=
 github.com/cenkalti/rpc2 v0.0.0-20140912135055-44d0d95e4f52/go.mod h1:v2npkhrXyk5BCnkNIiPdRI23Uq6uWPUQGL2hnRcRr/M=
-github.com/contiv/libOpenflow v0.0.0-20200319171453-882ba6d92cbc h1:xCk8SOFX7a5svlcuRKzJ4XqekAk+CpKQNWqPY/UXX9k=
-github.com/contiv/libOpenflow v0.0.0-20200319171453-882ba6d92cbc/go.mod h1:DtsPlJOByJZ+MO9YITEGUlbJ/jfh/ef0qeNyBYaeNR4=
+github.com/contiv/libOpenflow v0.0.0-20200424005919-3a6722c98962 h1:J5j3JV+Z9/Hg0ufQwk37uk8ZCJ+YUxEFxekBpIMI/JE=
+github.com/contiv/libOpenflow v0.0.0-20200424005919-3a6722c98962/go.mod h1:DtsPlJOByJZ+MO9YITEGUlbJ/jfh/ef0qeNyBYaeNR4=
 github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358 h1:AiA9SKyNXulsU7aAnyka3UFHYOIH00A9HvdIRnDXlg0=
 github.com/contiv/libovsdb v0.0.0-20170227191248-d0061a53e358/go.mod h1:+qKEHaNVPj+wrn5st7TEFH9wcUWCJq5ZBvVKPQwzAeg=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
