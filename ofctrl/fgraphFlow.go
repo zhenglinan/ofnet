@@ -545,7 +545,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 	for i := len(self.flowActions) - 1; i >= 0; i-- {
 		flowAction := self.flowActions[i]
 		switch flowAction.ActionType {
-		case "setVlan":
+		case ActTypeSetVlan:
 			// Push Vlan Tag action
 			pushVlanAction := openflow13.NewActionPushVlan(0x8100)
 
@@ -567,7 +567,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			log.Debugf("flow install. Added pushvlan action: %+v, setVlan Actions: %+v",
 				pushVlanAction, setVlanAction)
 
-		case "popVlan":
+		case ActTypePopVlan:
 			// Create pop vln action
 			popVlan := openflow13.NewActionPopVlan()
 
@@ -580,7 +580,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added popVlan action: %+v", popVlan)
 
-		case "setMacDa":
+		case ActTypeSetDstMac:
 			// Set Outer MacDA field
 			macDaField := openflow13.NewEthDstField(flowAction.macAddr, nil)
 			setMacDaAction := openflow13.NewActionSetField(*macDaField)
@@ -594,7 +594,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setMacDa action: %+v", setMacDaAction)
 
-		case "setMacSa":
+		case ActTypeSetSrcMac:
 			// Set Outer MacSA field
 			macSaField := openflow13.NewEthSrcField(flowAction.macAddr, nil)
 			setMacSaAction := openflow13.NewActionSetField(*macSaField)
@@ -608,7 +608,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setMacSa Action: %+v", setMacSaAction)
 
-		case "setTunnelId":
+		case ActTypeSetTunnelID:
 			// Set tunnelId field
 			tunnelIdField := openflow13.NewTunnelIdField(flowAction.tunnelId)
 			setTunnelAction := openflow13.NewActionSetField(*tunnelIdField)
@@ -629,7 +629,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			// Add the instruction to flowmod
 			flowMod.AddInstruction(metadataInstr)
 
-		case "setIPSa":
+		case ActTypeSetSrcIP:
 			// Set IP src
 			ipSaField := openflow13.NewIpv4SrcField(flowAction.ipAddr, nil)
 			setIPSaAction := openflow13.NewActionSetField(*ipSaField)
@@ -643,7 +643,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setIPSa Action: %+v", setIPSaAction)
 
-		case "setIPDa":
+		case ActTypeSetDstIP:
 			// Set IP dst
 			ipDaField := openflow13.NewIpv4DstField(flowAction.ipAddr, nil)
 			setIPDaAction := openflow13.NewActionSetField(*ipDaField)
@@ -657,7 +657,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setIPDa Action: %+v", setIPDaAction)
 
-		case "setTunSa":
+		case ActTypeSetTunnelSrcIP:
 			// Set tunnel src addr field
 			tunnelSrcField := openflow13.NewTunnelIpv4SrcField(flowAction.ipAddr, nil)
 			setTunnelSrcAction := openflow13.NewActionSetField(*tunnelSrcField)
@@ -671,7 +671,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setTunSa Action: %+v", setTunnelSrcAction)
 
-		case "setTunDa":
+		case ActTypeSetTunnelDstIP:
 			// Set tunnel dst addr field
 			tunnelDstField := openflow13.NewTunnelIpv4DstField(flowAction.ipAddr, nil)
 			setTunnelAction := openflow13.NewActionSetField(*tunnelDstField)
@@ -685,7 +685,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setTunDa Action: %+v", setTunnelAction)
 
-		case "setDscp":
+		case ActTypeSetDSCP:
 			// Set DSCP field
 			ipDscpField := openflow13.NewIpDscpField(flowAction.dscp)
 			setIPDscpAction := openflow13.NewActionSetField(*ipDscpField)
@@ -699,7 +699,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setDscp Action: %+v", setIPDscpAction)
 
-		case "setARPOper":
+		case ActTypeSetARPOper:
 			// Set ARP operation type field
 			arpOpField := openflow13.NewArpOperField(flowAction.arpOper)
 			setARPOpAction := openflow13.NewActionSetField(*arpOpField)
@@ -713,7 +713,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setArpOper Action: %+v", setARPOpAction)
 
-		case "setARPSha":
+		case ActTypeSetARPSHA:
 			// Set ARP_SHA field
 			arpShaField := openflow13.NewArpShaField(flowAction.macAddr)
 			setARPShaAction := openflow13.NewActionSetField(*arpShaField)
@@ -727,7 +727,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setARPSha Action: %+v", setARPShaAction)
 
-		case "setARPTha":
+		case ActTypeSetARPTHA:
 			// Set ARP_THA field
 			arpThaField := openflow13.NewArpThaField(flowAction.macAddr)
 			setARPThaAction := openflow13.NewActionSetField(*arpThaField)
@@ -741,7 +741,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setARPTha Action: %+v", setARPThaAction)
 
-		case "setARPSpa":
+		case ActTypeSetARPSPA:
 			// Set ARP_SPA field
 			arpSpaField := openflow13.NewArpSpaField(flowAction.ipAddr)
 			setARPSpaAction := openflow13.NewActionSetField(*arpSpaField)
@@ -754,7 +754,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added setARPSpa Action: %+v", setARPSpaAction)
-		case "setARPTpa":
+		case ActTypeSetARPTPA:
 			// Set ARP_TPA field
 			arpTpaField := openflow13.NewArpTpaField(flowAction.ipAddr)
 			setARPTpaAction := openflow13.NewActionSetField(*arpTpaField)
@@ -767,7 +767,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added setARPTpa Action: %+v", setARPTpaAction)
-		case "setTCPSrc":
+		case ActTypeSetTCPsPort:
 			// Set TCP src
 			tcpSrcField := openflow13.NewTcpSrcField(flowAction.l4Port)
 			setTCPSrcAction := openflow13.NewActionSetField(*tcpSrcField)
@@ -781,7 +781,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setTCPSrc Action: %+v", setTCPSrcAction)
 
-		case "setTCPDst":
+		case ActTypeSetTCPdPort:
 			// Set TCP dst
 			tcpDstField := openflow13.NewTcpDstField(flowAction.l4Port)
 			setTCPDstAction := openflow13.NewActionSetField(*tcpDstField)
@@ -795,7 +795,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setTCPDst Action: %+v", setTCPDstAction)
 
-		case "setUDPSrc":
+		case ActTypeSetUDPsPort:
 			// Set UDP src
 			udpSrcField := openflow13.NewUdpSrcField(flowAction.l4Port)
 			setUDPSrcAction := openflow13.NewActionSetField(*udpSrcField)
@@ -809,7 +809,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow install. Added setUDPSrc Action: %+v", setUDPSrcAction)
 
-		case "setUDPDst":
+		case ActTypeSetUDPdPort:
 			// Set UDP dst
 			udpDstField := openflow13.NewUdpDstField(flowAction.l4Port)
 			setUDPDstAction := openflow13.NewActionSetField(*udpDstField)
@@ -822,7 +822,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow install. Added setUDPDst Action: %+v", setUDPDstAction)
-		case "setSCTPSrc":
+		case ActTypeSetSCTPsPort:
 			// Set SCTP src
 			sctpSrcField := openflow13.NewSctpSrcField(flowAction.l4Port)
 			setSCTPSrcAction := openflow13.NewActionSetField(*sctpSrcField)
@@ -836,7 +836,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setSCTPSrc Action: %+v", setSCTPSrcAction)
 
-		case "setSCTPDst":
+		case ActTypeSetSCTPdPort:
 			// Set SCTP dst
 			sctpDstField := openflow13.NewSctpSrcField(flowAction.l4Port)
 			setSCTPDstAction := openflow13.NewActionSetField(*sctpDstField)
@@ -850,7 +850,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added setSCTPSrc Action: %+v", setSCTPDstAction)
 
-		case "loadReg":
+		case ActTypeNXLoad:
 			// Create NX load action
 			loadAct := flowAction.loadAct
 			loadRegAction := loadAct.GetActionMessage()
@@ -864,7 +864,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added loadReg Action: %+v", loadRegAction)
 
-		case "moveReg":
+		case ActTypeNXMove:
 			// Create NX move action
 			moveRegAction := flowAction.moveAct.GetActionMessage()
 
@@ -877,7 +877,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added moveReg Action: %+v", moveRegAction)
 
-		case "ct":
+		case ActTypeNXCT:
 			ctAction := flowAction.connTrack.GetActionMessage()
 
 			// Add conn_track action to the instruction
@@ -889,7 +889,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added ct Action: %+v", ctAction)
 
-		case "conjunction":
+		case ActTypeNXConjunction:
 			// Create NX conjunction action
 			conjAction := flowAction.conjunction.GetActionMessage()
 
@@ -902,7 +902,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 
 			log.Debugf("flow action: Added conjunction Action: %+v", conjAction)
 
-		case "decTTL":
+		case ActTypeDecTTL:
 			decTtlAction := openflow13.NewActionDecNwTtl()
 			// Add dec_ttl action to the instruction
 			err = actInstr.AddAction(decTtlAction, true)
@@ -912,7 +912,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added decTTL Action: %+v", decTtlAction)
-		case "resubmit":
+		case ActTypeNXResubmit:
 			resubmitAction := flowAction.resubmit
 			// Add resubmit action to the instruction
 			err = actInstr.AddAction(resubmitAction.GetActionMessage(), true)
@@ -922,7 +922,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added resubmit Action: %+v", resubmitAction)
-		case "learn":
+		case ActTypeNXLearn:
 			learnAction := flowAction.learn
 			// Add learn action to the instruction
 			err = actInstr.AddAction(learnAction.GetActionMessage(), true)
@@ -932,7 +932,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added learn Action: %+v", learnAction)
-		case "note":
+		case ActTypeNXNote:
 			notes := flowAction.notes
 			noteAction := openflow13.NewNXActionNote()
 			noteAction.Note = notes
@@ -944,7 +944,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added note Action: %+v", noteAction)
-		case "nxOutput":
+		case ActTypeNXOutput:
 			nxOutput := flowAction.nxOutput
 			// Add NXOutput action to the instruction
 			err = actInstr.AddAction(nxOutput.GetActionMessage(), true)
@@ -954,7 +954,7 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow action: Added nxOutput Action: %+v", nxOutput)
-		case "controller":
+		case ActTypeController:
 			act := flowAction.controller
 			err = actInstr.AddAction(act.GetActionMessage(), true)
 			if err != nil {
@@ -1135,7 +1135,7 @@ func (self *Flow) Next(elem FgraphElem) error {
 // Special action on the flow to set vlan id
 func (self *Flow) SetVlan(vlanId uint16) error {
 	action := new(FlowAction)
-	action.ActionType = "setVlan"
+	action.ActionType = ActTypeSetVlan
 	action.vlanId = vlanId
 
 	self.lock.Lock()
@@ -1155,7 +1155,7 @@ func (self *Flow) SetVlan(vlanId uint16) error {
 // Special action on the flow to set vlan id
 func (self *Flow) PopVlan() error {
 	action := new(FlowAction)
-	action.ActionType = "popVlan"
+	action.ActionType = ActTypePopVlan
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1174,7 +1174,7 @@ func (self *Flow) PopVlan() error {
 // Special action on the flow to set mac dest addr
 func (self *Flow) SetMacDa(macDa net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.ActionType = "setMacDa"
+	action.ActionType = ActTypeSetDstMac
 	action.macAddr = macDa
 
 	self.lock.Lock()
@@ -1194,7 +1194,7 @@ func (self *Flow) SetMacDa(macDa net.HardwareAddr) error {
 // Special action on the flow to set mac source addr
 func (self *Flow) SetMacSa(macSa net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.ActionType = "setMacSa"
+	action.ActionType = ActTypeSetSrcMac
 	action.macAddr = macSa
 
 	self.lock.Lock()
@@ -1216,13 +1216,13 @@ func (self *Flow) SetIPField(ip net.IP, field string) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
 	if field == "Src" {
-		action.ActionType = "setIPSa"
+		action.ActionType = ActTypeSetSrcIP
 	} else if field == "Dst" {
-		action.ActionType = "setIPDa"
+		action.ActionType = ActTypeSetDstIP
 	} else if field == "TunSrc" {
-		action.ActionType = "setTunSa"
+		action.ActionType = ActTypeSetTunnelSrcIP
 	} else if field == "TunDst" {
-		action.ActionType = "setTunDa"
+		action.ActionType = ActTypeSetTunnelDstIP
 	} else {
 		return errors.New("field not supported")
 	}
@@ -1245,7 +1245,7 @@ func (self *Flow) SetIPField(ip net.IP, field string) error {
 func (self *Flow) SetARPSpa(ip net.IP) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
-	action.ActionType = "setARPSpa"
+	action.ActionType = ActTypeSetARPSPA
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1265,7 +1265,7 @@ func (self *Flow) SetARPSpa(ip net.IP) error {
 func (self *Flow) SetARPTpa(ip net.IP) error {
 	action := new(FlowAction)
 	action.ipAddr = ip
-	action.ActionType = "setARPTpa"
+	action.ActionType = ActTypeSetARPTPA
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1288,22 +1288,22 @@ func (self *Flow) SetL4Field(port uint16, field string) error {
 
 	switch field {
 	case "TCPSrc":
-		action.ActionType = "setTCPSrc"
+		action.ActionType = ActTypeSetTCPsPort
 		break
 	case "TCPDst":
-		action.ActionType = "setTCPDst"
+		action.ActionType = ActTypeSetTCPdPort
 		break
 	case "UDPSrc":
-		action.ActionType = "setUDPSrc"
+		action.ActionType = ActTypeSetUDPsPort
 		break
 	case "UDPDst":
-		action.ActionType = "setUDPDst"
+		action.ActionType = ActTypeSetUDPdPort
 		break
 	case "SCTPSrc":
-		action.ActionType = "setSCTPSrc"
+		action.ActionType = ActTypeSetSCTPsPort
 		break
 	case "SCTPDst":
-		action.ActionType = "setSCTPDst"
+		action.ActionType = ActTypeSetSCTPdPort
 		break
 	default:
 		return errors.New("field not supported")
@@ -1347,7 +1347,7 @@ func (self *Flow) SetMetadata(metadata, metadataMask uint64) error {
 // Special actions on the flow to set vlan id
 func (self *Flow) SetTunnelId(tunnelId uint64) error {
 	action := new(FlowAction)
-	action.ActionType = "setTunnelId"
+	action.ActionType = ActTypeSetTunnelID
 	action.tunnelId = tunnelId
 
 	self.lock.Lock()
@@ -1367,7 +1367,7 @@ func (self *Flow) SetTunnelId(tunnelId uint64) error {
 // Special actions on the flow to set dscp field
 func (self *Flow) SetDscp(dscp uint8) error {
 	action := new(FlowAction)
-	action.ActionType = "setDscp"
+	action.ActionType = ActTypeSetDSCP
 	action.dscp = dscp
 
 	self.lock.Lock()
@@ -1391,7 +1391,7 @@ func (self *Flow) UnsetDscp() error {
 
 	// Delete to the action from db
 	for idx, act := range self.flowActions {
-		if act.ActionType == "setDscp" {
+		if act.ActionType == ActTypeSetDSCP {
 			self.flowActions = append(self.flowActions[:idx], self.flowActions[idx+1:]...)
 		}
 	}
@@ -1406,7 +1406,7 @@ func (self *Flow) UnsetDscp() error {
 
 func (self *Flow) SetARPOper(arpOp uint16) error {
 	action := new(FlowAction)
-	action.ActionType = "setARPOper"
+	action.ActionType = ActTypeSetARPOper
 	action.arpOper = arpOp
 
 	self.lock.Lock()
@@ -1426,7 +1426,7 @@ func (self *Flow) SetARPOper(arpOp uint16) error {
 // Special action on the flow to set ARP source host addr
 func (self *Flow) SetARPSha(arpSha net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.ActionType = "setARPSha"
+	action.ActionType = ActTypeSetARPSHA
 	action.macAddr = arpSha
 
 	self.lock.Lock()
@@ -1446,7 +1446,7 @@ func (self *Flow) SetARPSha(arpSha net.HardwareAddr) error {
 // Special action on the flow to set ARP target host addr
 func (self *Flow) SetARPTha(arpTha net.HardwareAddr) error {
 	action := new(FlowAction)
-	action.ActionType = "setARPTha"
+	action.ActionType = ActTypeSetARPTHA
 	action.macAddr = arpTha
 
 	self.lock.Lock()
@@ -1473,7 +1473,7 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 		self.Table.Switch.ResetFieldLength(loadAct.Field)
 	}
 	action := new(FlowAction)
-	action.ActionType = "loadReg"
+	action.ActionType = loadAct.GetActionType()
 	action.loadAct = loadAct
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1500,7 +1500,7 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 	}
 
 	action := new(FlowAction)
-	action.ActionType = "moveReg"
+	action.ActionType = moveAct.GetActionType()
 	action.moveAct = moveAct
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1517,8 +1517,8 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 
 func (self *Flow) Resubmit(ofPort uint16, tableID uint8) error {
 	action := new(FlowAction)
-	action.ActionType = "resubmit"
 	action.resubmit = NewResubmit(&ofPort, &tableID)
+	action.ActionType = action.resubmit.GetActionType()
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1542,7 +1542,7 @@ func (self *Flow) ConnTrack(commit bool, force bool, tableID *uint8, zoneID *uin
 		actions: execActions,
 	}
 	action := new(FlowAction)
-	action.ActionType = "ct"
+	action.ActionType = connTrack.GetActionType()
 	action.connTrack = connTrack
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1570,7 +1570,7 @@ func (self *Flow) AddConjunction(conjID uint32, clause uint8, nClause uint8) err
 	}
 
 	action := new(FlowAction)
-	action.ActionType = "conjunction"
+	action.ActionType = conjunction.GetActionType()
 	action.conjunction = conjunction
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1593,7 +1593,7 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 
 	// Remove conjunction from the action db
 	for i, act := range self.flowActions {
-		if act.ActionType == "conjunction" {
+		if act.ActionType == ActTypeNXConjunction {
 			conjuncAct := act.conjunction
 			if conjID == conjuncAct.ID {
 				self.flowActions = append(self.flowActions[:i], self.flowActions[i+1:]...)
@@ -1621,7 +1621,7 @@ func (self *Flow) DelConjunction(conjID uint32) error {
 // Special Actions to the flow to dec TTL
 func (self *Flow) DecTTL() error {
 	action := new(FlowAction)
-	action.ActionType = "decTTL"
+	action.ActionType = ActTypeDecTTL
 	self.lock.Lock()
 	defer self.lock.Unlock()
 
@@ -1638,7 +1638,7 @@ func (self *Flow) DecTTL() error {
 // Special Actions to the flow to learn from the current packet and generate a new flow entry.
 func (self *Flow) Learn(learn *FlowLearn) error {
 	action := new(FlowAction)
-	action.ActionType = "learn"
+	action.ActionType = ActTypeNXLearn
 	action.learn = learn
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1655,7 +1655,7 @@ func (self *Flow) Learn(learn *FlowLearn) error {
 
 func (self *Flow) Note(data []byte) error {
 	action := new(FlowAction)
-	action.ActionType = "note"
+	action.ActionType = ActTypeNXNote
 	action.notes = data
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1671,12 +1671,12 @@ func (self *Flow) Note(data []byte) error {
 }
 func (self *Flow) OutputReg(name string, start int, end int) error {
 	action := new(FlowAction)
-	action.ActionType = "nxOutput"
 	var err error
 	action.nxOutput, err = NewNXOutput(name, start, end)
 	if err != nil {
 		return err
 	}
+	action.ActionType = action.nxOutput.GetActionType()
 
 	self.lock.Lock()
 	defer self.lock.Unlock()
@@ -1697,7 +1697,7 @@ func (self *Flow) Controller(reason uint8) error {
 		ControllerID: self.Table.Switch.ctrlID,
 		Reason:       reason,
 	}
-	action.ActionType = "controller"
+	action.ActionType = action.controller.GetActionType()
 	self.lock.Lock()
 	defer self.lock.Unlock()
 

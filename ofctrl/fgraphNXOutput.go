@@ -9,19 +9,6 @@ type NXOutput struct {
 	fieldRange *openflow13.NXRange    // Field range of target register to output
 }
 
-// Fgraph element type for the NXOutput
-func (self *NXOutput) Type() string {
-	return "nxOutput"
-}
-
-// instruction set for NXOutput element
-func (self *NXOutput) GetFlowInstr() openflow13.Instruction {
-	outputInstr := openflow13.NewInstrApplyActions()
-	outputAct := self.GetActionMessage()
-	outputInstr.AddAction(outputAct, false)
-	return outputInstr
-}
-
 // Return a NXOutput action
 func (self *NXOutput) GetActionMessage() openflow13.Action {
 	ofsNbits := self.fieldRange.ToOfsBits()
