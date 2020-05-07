@@ -1509,6 +1509,35 @@ func TestGetMaskBytes(t *testing.T) {
 	assert.Equal(t, "0x00ffff00", maskString)
 }
 
+func TestModPort(t *testing.T) {
+	app := new(OfActor)
+	ctrl := NewController(app)
+	brName := "br4modPort"
+	ovsBr := prepareContollerAndSwitch(t, app, ctrl, brName)
+	defer func() {
+		if err := ovsBr.DeleteBridge(brName); err != nil {
+			t.Errorf("Failed to delete br %s: %v", brName, err)
+		}
+		ctrl.Delete()
+	}()
+
+	testPort := "test"
+	portNo := 100
+	cmd := fmt.Sprintf("ovs-vsctl --may-exist add-port %s %s -- set Interface %s type=internal ofport_request=%d", brName, testPort, testPort, portNo)
+	err := exec.Command("/bin/bash", "-c", cmd).Run()
+	require.Nil(t, err)
+	time.Sleep(1 * time.Second)
+
+	cmd2 := fmt.Sprintf("ovs-vsctl get Interface %s mac_in_use", testPort)
+	macBytes, err := exec.Command("/bin/bash", "-c", cmd2).Output()
+	require.Nil(t, err)
+	macStr := strings.TrimRight(string(macBytes), "\n")
+	macStr = strings.Trim(macStr, "\"")
+	mac, _ := net.ParseMAC(macStr)
+	err = app.Switch.DisableOFPortForwarding(portNo, mac)
+	require.Nil(t, err)
+}
+
 func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on Table %d in bridge %s", ofApp.inputTable.TableId, brName)

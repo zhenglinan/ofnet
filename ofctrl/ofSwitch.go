@@ -428,6 +428,20 @@ func (self *OFSwitch) CheckStatus(timeout time.Duration) bool {
 	return self.lastUpdate.Add(heartbeatInterval).After(time.Now())
 }
 
+func (self *OFSwitch) EnableOFPortForwarding(port int, portMAC net.HardwareAddr) error {
+	config := 0
+	config &^= openflow13.PC_NO_FWD
+	mask := openflow13.PC_NO_FWD
+	return self.sendModPortMessage(port, portMAC, config, mask)
+}
+
+
+func (self *OFSwitch) DisableOFPortForwarding(port int, portMAC net.HardwareAddr) error {
+	config := openflow13.PC_NO_FWD
+	mask := openflow13.PC_NO_FWD
+	return self.sendModPortMessage(port, portMAC, config, mask)
+}
+
 func (self *OFSwitch) subscribeMessage(xID uint32, msgChan chan MessageResult) {
 	self.txLock.Lock()
 	self.txChans[xID] = msgChan
@@ -452,4 +466,12 @@ func (self *OFSwitch) unSubscribeMessage(xID uint32) {
 	if found {
 		delete(self.txChans, xID)
 	}
+}
+
+func (self *OFSwitch) sendModPortMessage(port int, mac net.HardwareAddr, config int, mask int) error {
+	msg := openflow13.NewPortMod(port)
+	msg.HWAddr = mac
+	msg.Config = uint32(config)
+	msg.Mask = uint32(mask)
+	return self.Send(msg)
 }
