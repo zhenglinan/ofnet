@@ -141,11 +141,12 @@ func (a *SetTunnelSrcAction) GetActionType() string {
 }
 
 type SetDstIPAction struct {
-	IP net.IP
+	IP     net.IP
+	IPMask *net.IP
 }
 
 func (a *SetDstIPAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewIpv4DstField(a.IP, nil)
+	field := openflow13.NewIpv4DstField(a.IP, a.IPMask)
 	return openflow13.NewActionSetField(*field)
 }
 
@@ -154,11 +155,12 @@ func (a *SetDstIPAction) GetActionType() string {
 }
 
 type SetSrcIPAction struct {
-	IP net.IP
+	IP     net.IP
+	IPMask *net.IP
 }
 
 func (a *SetSrcIPAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewIpv4SrcField(a.IP, nil)
+	field := openflow13.NewIpv4SrcField(a.IP, a.IPMask)
 	return openflow13.NewActionSetField(*field)
 }
 

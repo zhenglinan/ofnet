@@ -438,7 +438,6 @@ func (self *OFSwitch) EnableOFPortForwarding(port int, portMAC net.HardwareAddr)
 	return self.sendModPortMessage(port, portMAC, config, mask)
 }
 
-
 func (self *OFSwitch) DisableOFPortForwarding(port int, portMAC net.HardwareAddr) error {
 	config := openflow13.PC_NO_FWD
 	mask := openflow13.PC_NO_FWD

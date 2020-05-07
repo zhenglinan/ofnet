@@ -47,11 +47,16 @@ type FlowMatch struct {
 	IpSaMask      *net.IP              // IPv4 source mask
 	IpDa          *net.IP              // IPv4 dest addr
 	IpDaMask      *net.IP              // IPv4 dest mask
+	CtIpSa        *net.IP              // IPv4 source addr in ct
+	CtIpDa        *net.IP              // IPv4 dest addr in ct
 	Ipv6Sa        *net.IP              // IPv6 source addr
 	Ipv6SaMask    *net.IP              // IPv6 source mask
 	Ipv6Da        *net.IP              // IPv6 dest addr
 	Ipv6DaMask    *net.IP              // IPv6 dest mask
+	CtIpv6Sa      *net.IP              // IPv6 source addr
+	CtIpv6Da      *net.IP              // IPv6 dest addr in ct
 	IpProto       uint8                // IP protocol
+	CtIpProto     uint8                // IP protocol in ct
 	IpDscp        uint8                // DSCP/TOS field
 	TcpSrcPort    uint16               // TCP source port
 	TcpDstPort    uint16               // TCP dest port
@@ -59,6 +64,8 @@ type FlowMatch struct {
 	UdpDstPort    uint16               // UDP dest port
 	SctpSrcPort   uint16               // SCTP source port
 	SctpDstPort   uint16               // SCTP dest port
+	CtTpSrcPort   uint16               // Source port in the transport layer in ct
+	CtTpDstPort   uint16               // Dest port in the transport layer in ct
 	Metadata      *uint64              // OVS metadata
 	MetadataMask  *uint64              // Metadata mask
 	TunnelId      uint64               // Vxlan Tunnel id i.e. VNI
@@ -422,6 +429,52 @@ func (self *Flow) xlateMatch() openflow13.Match {
 			tmField := openflow13.NewTunMetadataField(m.ID, data, mask)
 			ofMatch.AddField(*tmField)
 		}
+	}
+
+	if self.Match.CtIpSa != nil {
+		ctIPSaField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_NW_SRC", false)
+		ctIPSaField.Value = &openflow13.Ipv4SrcField{
+			Ipv4Src: *self.Match.CtIpSa,
+		}
+		ofMatch.AddField(*ctIPSaField)
+	}
+
+	if self.Match.CtIpDa != nil {
+		ctIPDaField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_NW_DST", false)
+		ctIPDaField.Value = &openflow13.Ipv4DstField{
+			Ipv4Dst: *self.Match.CtIpDa,
+		}
+		ofMatch.AddField(*ctIPDaField)
+	}
+
+	if self.Match.CtIpProto > 0 {
+		ctIPProtoField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_NW_PROTO", false)
+		ctIPProtoField.Value = &ProtocolField{protocol: self.Match.CtIpProto}
+		ofMatch.AddField(*ctIPProtoField)
+	}
+
+	if self.Match.CtIpv6Sa != nil {
+		ctIPv6SaField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_IPV6_SRC", false)
+		ctIPv6SaField.Value = &openflow13.Ipv6SrcField{Ipv6Src: *self.Match.CtIpv6Sa}
+		ofMatch.AddField(*ctIPv6SaField)
+	}
+
+	if self.Match.CtIpv6Da != nil {
+		ctIPv6DaField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_IPV6_DST", false)
+		ctIPv6DaField.Value = &openflow13.Ipv6DstField{Ipv6Dst: *self.Match.CtIpv6Da}
+		ofMatch.AddField(*ctIPv6DaField)
+	}
+
+	if self.Match.CtTpSrcPort > 0 {
+		ctTpSrcPortField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_TP_SRC", false)
+		ctTpSrcPortField.Value = &PortField{port: self.Match.CtTpSrcPort}
+		ofMatch.AddField(*ctTpSrcPortField)
+	}
+
+	if self.Match.CtTpDstPort > 0 {
+		ctTpDstPortField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_TP_DST", false)
+		ctTpDstPortField.Value = &PortField{port: self.Match.CtTpDstPort}
+		ofMatch.AddField(*ctTpDstPortField)
 	}
 
 	return *ofMatch

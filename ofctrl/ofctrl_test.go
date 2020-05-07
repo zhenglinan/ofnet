@@ -1536,6 +1536,60 @@ func TestModPort(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestCtMatch(t *testing.T) {
+	app := new(OfActor)
+	ctrl := NewController(app)
+	brName := "br4ctMatch"
+	ovsBr := prepareContollerAndSwitch(t, app, ctrl, brName)
+	defer func() {
+		if err := ovsBr.DeleteBridge(brName); err != nil {
+			t.Errorf("Failed to delete br %s: %v", brName, err)
+		}
+		ctrl.Delete()
+	}()
+
+	app.Switch.EnableMonitor()
+
+	ctStates := openflow13.NewCTStates()
+	ctStates.SetNew()
+	inPort1 := uint32(201)
+	ctIpSrc := net.ParseIP("1.1.1.1")
+	flow1 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x0800,
+			InputPort: inPort1,
+			CtStates:  ctStates,
+			CtIpSa:    &ctIpSrc,
+		},
+	}
+	flow1.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, app.inputTable.TableId,
+		"priority=100,ct_state=+new,ct_nw_src=1.1.1.1,ip,in_port=201",
+		"goto_table:1")
+
+	inPort2 := uint32(202)
+	ctIpDst := net.ParseIP("2.2.2.2")
+	flow2 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:    100,
+			Ethertype:   0x0800,
+			InputPort:   inPort2,
+			CtStates:    ctStates,
+			CtIpDa:      &ctIpDst,
+			CtIpProto:   IP_PROTO_TCP,
+			CtTpSrcPort: 1001,
+			CtTpDstPort: 2002,
+		},
+	}
+	flow2.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow2, brName, app.inputTable.TableId,
+		"priority=100,ct_state=+new,ct_nw_dst=2.2.2.2,ct_nw_proto=6,ct_tp_src=1001,ct_tp_dst=2002,ip,in_port=202",
+		"goto_table:1")
+}
+
 func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on Table %d in bridge %s", ofApp.inputTable.TableId, brName)
@@ -1554,7 +1608,6 @@ func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	require.Nil(t, err)
 	err = flow1.Next(ofApp.nextTable)
 	require.Nil(t, err)
-
 }
 
 func testNXExtensionLearn(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {

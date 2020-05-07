@@ -773,3 +773,39 @@ func GetUint64ValueWithRangeFromBytes(data []byte, rng *openflow13.NXRange) (uin
 	newRange := openflow13.NewNXRange(int(rng.GetOfs())-startDiff, int(rng.GetNbits())-startDiff)
 	return GetUint64ValueWithRange(uint64Data, newRange), nil
 }
+
+type PortField struct {
+	port uint16
+}
+
+func (m *PortField) Len() uint16 {
+	return 2
+}
+func (m *PortField) MarshalBinary() (data []byte, err error) {
+	data = make([]byte, m.Len())
+	binary.BigEndian.PutUint16(data, m.port)
+	return
+}
+
+func (m *PortField) UnmarshalBinary(data []byte) error {
+	m.port = binary.BigEndian.Uint16(data)
+	return nil
+}
+
+type ProtocolField struct {
+	protocol uint8
+}
+
+func (m *ProtocolField) Len() uint16 {
+	return 1
+}
+func (m *ProtocolField) MarshalBinary() (data []byte, err error) {
+	data = make([]byte, 1)
+	data[0] = m.protocol
+	return
+}
+
+func (m *ProtocolField) UnmarshalBinary(data []byte) error {
+	m.protocol = data[0]
+	return nil
+}
