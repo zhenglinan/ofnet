@@ -65,7 +65,7 @@ type OFSwitch struct {
 	cancel  context.CancelFunc // cancel is used to cancel the proceeding OpenFlow message when OFSwitch is disconnected.
 	ctrlID  uint16
 
-	tlvTableStatus *TLVTableStatus
+	tlvMgr *tlvMapMgr
 }
 
 var switchDb cmap.ConcurrentMap
@@ -111,6 +111,7 @@ func NewSwitch(stream *util.MessageStream, dpid net.HardwareAddr, app AppInterfa
 		// Update context for the new connection.
 		s.ctx, s.cancel = context.WithCancel(context.Background())
 	}
+	s.tlvMgr = newTLVMapMgr()
 	// send Switch connected callback
 	s.switchConnected()
 
@@ -171,7 +172,6 @@ func (self *OFSwitch) IsReady() bool {
 // Handle switch connected event
 func (self *OFSwitch) switchConnected() {
 	self.changeStatus(true)
-	self.app.SwitchConnected(self)
 
 	// Send new feature request
 	self.Send(openflow13.NewFeaturesRequest())
@@ -191,6 +191,8 @@ func (self *OFSwitch) switchConnected() {
 			}
 		}
 	}()
+	self.requestTlvMap()
+	self.app.SwitchConnected(self)
 
 }
 
@@ -272,8 +274,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		case openflow13.Type_TlvTableReply:
 			reply := t.VendorData.(*openflow13.TLVTableReply)
 			status := TLVTableStatus(*reply)
-			self.tlvTableStatus = &status
-			self.app.TLVMapReplyRcvd(self, self.tlvTableStatus)
+			self.tlvMgr.TLVMapReplyRcvd(self, &status)
 		case openflow13.Type_BundleCtrl:
 			result := MessageResult{
 				xID:     t.Header.Xid,
@@ -285,10 +286,12 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 	case *openflow13.SwitchFeatures:
 		switch t.Header.Type {
 		case openflow13.Type_FeaturesReply:
-			swConfig := openflow13.NewSetConfig()
-			swConfig.MissSendLen = 128
-			self.Send(swConfig)
-			self.Send(openflow13.NewSetControllerID(self.ctrlID))
+			go func() {
+				swConfig := openflow13.NewSetConfig()
+				swConfig.MissSendLen = 128
+				self.Send(swConfig)
+				self.Send(openflow13.NewSetControllerID(self.ctrlID))
+			}()
 		}
 
 	case *openflow13.SwitchConfig:

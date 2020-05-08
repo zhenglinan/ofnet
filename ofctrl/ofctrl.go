@@ -53,8 +53,6 @@ type AppInterface interface {
 
 	// Controller received a multi-part reply from the switch
 	MultipartReply(sw *OFSwitch, rep *openflow13.MultipartReply)
-
-	TLVMapReplyRcvd(ofSwitch *OFSwitch, status *TLVTableStatus)
 }
 
 type ConnectionRetryControl interface {

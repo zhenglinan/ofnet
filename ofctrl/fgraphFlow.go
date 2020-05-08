@@ -1464,14 +1464,12 @@ func (self *Flow) SetARPTha(arpTha net.HardwareAddr) error {
 }
 
 // Special Actions on the flow to load data into OXM/NXM field
-func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.NXRange, varLenght bool) error {
+func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.NXRange) error {
 	loadAct, err := NewNXLoadAction(fieldName, data, dataRange)
 	if err != nil {
 		return err
 	}
-	if varLenght {
-		self.Table.Switch.ResetFieldLength(loadAct.Field)
-	}
+	self.resetFieldLength(loadAct.Field)
 	action := new(FlowAction)
 	action.ActionType = loadAct.GetActionType()
 	action.loadAct = loadAct
@@ -1489,15 +1487,13 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 }
 
 // Special Actions on the flow to move data from src_field[rng] to dst_field[rng]
-func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange, varLength bool) error {
+func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange) error {
 	moveAct, err := NewNXMoveAction(srcName, dstName, srcRange, dstRange)
 	if err != nil {
 		return err
 	}
-	if varLength {
-		self.Table.Switch.ResetFieldLength(moveAct.SrcField)
-		self.Table.Switch.ResetFieldLength(moveAct.DstField)
-	}
+	self.resetFieldLength(moveAct.SrcField)
+	self.resetFieldLength(moveAct.DstField)
 
 	action := new(FlowAction)
 	action.ActionType = moveAct.GetActionType()
@@ -1894,4 +1890,10 @@ func (self *Flow) Send(operationType int) error {
 	}
 	// Send the message
 	return self.Table.Switch.Send(flowMod)
+}
+
+func (self *Flow) resetFieldLength(field *openflow13.MatchField) {
+	if self.Table != nil && self.Table.Switch != nil {
+		ResetFieldLength(field, self.Table.Switch.tlvMgr.status)
+	}
 }
