@@ -1834,6 +1834,10 @@ func (self *Flow) GetBundleMessage(command int) (*FlowBundleMessage, error) {
 	return &FlowBundleMessage{flowMod}, nil
 }
 
+func (self *Flow) ApplyAction(action OFAction) {
+	self.appliedActions = append(self.appliedActions, action)
+}
+
 func (self *Flow) ApplyActions(actions []OFAction) {
 	self.appliedActions = append(self.appliedActions, actions...)
 }
@@ -1841,6 +1845,10 @@ func (self *Flow) ApplyActions(actions []OFAction) {
 func (self *Flow) ResetApplyActions(actions []OFAction) {
 	self.appliedActions = nil
 	self.ApplyActions(actions)
+}
+
+func (self *Flow) WriteAction(action OFAction) {
+	self.writeActions = append(self.writeActions, action)
 }
 
 func (self *Flow) WriteActions(actions []OFAction) {
