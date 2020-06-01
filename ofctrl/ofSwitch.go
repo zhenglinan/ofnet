@@ -477,3 +477,7 @@ func (self *OFSwitch) sendModPortMessage(port int, mac net.HardwareAddr, config 
 	msg.Mask = uint32(mask)
 	return self.Send(msg)
 }
+
+func (self *OFSwitch) GetControllerID() uint16 {
+	return self.ctrlID
+}

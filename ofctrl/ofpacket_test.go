@@ -37,7 +37,7 @@ func TestPacketIn_PacketOut(t *testing.T) {
 	app.pktCh = make(chan *PacketIn)
 	ctrl := NewController(app)
 	brName := "br4pkt"
-	ovsBr := prepareContollerAndSwitch(t, app.OfActor, ctrl, brName)
+	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
 	defer func() {
 		if err := ovsBr.DeleteBridge(brName); err != nil {
 			t.Errorf("Failed to delete br %s: %v", brName, err)
@@ -56,7 +56,7 @@ func TestNxOutputAndSendController(t *testing.T) {
 	app.pktCh = make(chan *PacketIn)
 	ctrl := NewController(app)
 	brName := "br4sendcontroller"
-	ovsBr := prepareContollerAndSwitch(t, app.OfActor, ctrl, brName)
+	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
 	defer func() {
 		if err := ovsBr.DeleteBridge(brName); err != nil {
 			t.Errorf("Failed to delete br %s: %v", brName, err)

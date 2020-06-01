@@ -901,7 +901,7 @@ func TestReconnectOFSwitch(t *testing.T) {
 	app := new(OfActor)
 	ctrl := NewController(app)
 	brName := "br4reconn"
-	ovsBr := prepareContollerAndSwitch(t, app, ctrl, brName)
+	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
 		// Wait for flow entries flush
 		time.Sleep(1 * time.Second)
@@ -927,7 +927,7 @@ func TestReconnectOFSwitch(t *testing.T) {
 	assert.Equal(t, 2, app.connectedCount)
 }
 
-func prepareContollerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, brName string) (ovsBr *OvsDriver) {
+func prepareControllerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, brName string) (ovsBr *OvsDriver) {
 	// Create ovs bridge and connect clientMode Controller to it
 	ovsBr = NewOvsDriver(brName)
 	go ctrl.Connect(fmt.Sprintf("/var/run/openvswitch/%s.mgmt", brName))
@@ -1511,7 +1511,7 @@ func TestModPort(t *testing.T) {
 	app := new(OfActor)
 	ctrl := NewController(app)
 	brName := "br4modPort"
-	ovsBr := prepareContollerAndSwitch(t, app, ctrl, brName)
+	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
 		if err := ovsBr.DeleteBridge(brName); err != nil {
 			t.Errorf("Failed to delete br %s: %v", brName, err)
@@ -1540,7 +1540,7 @@ func TestCtMatch(t *testing.T) {
 	app := new(OfActor)
 	ctrl := NewController(app)
 	brName := "br4ctMatch"
-	ovsBr := prepareContollerAndSwitch(t, app, ctrl, brName)
+	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
 		if err := ovsBr.DeleteBridge(brName); err != nil {
 			t.Errorf("Failed to delete br %s: %v", brName, err)
@@ -1587,6 +1587,27 @@ func TestCtMatch(t *testing.T) {
 	flow2.Goto(app.nextTable.TableId)
 	verifyNewFlowInstallAndDelete(t, flow2, brName, app.inputTable.TableId,
 		"priority=100,ct_state=+new,ct_nw_dst=2.2.2.2,ct_nw_proto=6,ct_tp_src=1001,ct_tp_dst=2002,ip,in_port=202",
+		"goto_table:1")
+
+	ctIpSrc2 := net.ParseIP("3.3.3.0")
+	ctIpSrc2Mask := net.ParseIP("255.255.255.0")
+	flow3 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:    100,
+			Ethertype:   0x0800,
+			InputPort:   inPort2,
+			CtStates:    ctStates,
+			CtIpSa:      &ctIpSrc2,
+			CtIpSaMask:  &ctIpSrc2Mask,
+			CtIpProto:   IP_PROTO_TCP,
+			CtTpSrcPort: 1001,
+			CtTpDstPort: 2002,
+		},
+	}
+	flow3.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow3, brName, app.inputTable.TableId,
+		"priority=100,ct_state=+new,ct_nw_src=3.3.3.0/24,ct_nw_proto=6,ct_tp_src=1001,ct_tp_dst=2002,ip,in_port=202",
 		"goto_table:1")
 }
 

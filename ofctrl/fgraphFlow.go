@@ -48,7 +48,9 @@ type FlowMatch struct {
 	IpDa          *net.IP              // IPv4 dest addr
 	IpDaMask      *net.IP              // IPv4 dest mask
 	CtIpSa        *net.IP              // IPv4 source addr in ct
+	CtIpSaMask    *net.IP              // IPv4 source mask in ct
 	CtIpDa        *net.IP              // IPv4 dest addr in ct
+	CtIpDaMask    *net.IP              // IPv4 dest mask in ct
 	Ipv6Sa        *net.IP              // IPv6 source addr
 	Ipv6SaMask    *net.IP              // IPv6 source mask
 	Ipv6Da        *net.IP              // IPv6 dest addr
@@ -436,6 +438,13 @@ func (self *Flow) xlateMatch() openflow13.Match {
 		ctIPSaField.Value = &openflow13.Ipv4SrcField{
 			Ipv4Src: *self.Match.CtIpSa,
 		}
+		if self.Match.CtIpSaMask != nil {
+			mask := new(openflow13.Ipv4SrcField)
+			mask.Ipv4Src = *self.Match.CtIpSaMask
+			ctIPSaField.HasMask = true
+			ctIPSaField.Mask = mask
+			ctIPSaField.Length += uint8(mask.Len())
+		}
 		ofMatch.AddField(*ctIPSaField)
 	}
 
@@ -443,6 +452,13 @@ func (self *Flow) xlateMatch() openflow13.Match {
 		ctIPDaField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_NW_DST", false)
 		ctIPDaField.Value = &openflow13.Ipv4DstField{
 			Ipv4Dst: *self.Match.CtIpDa,
+		}
+		if self.Match.CtIpDaMask != nil {
+			mask := new(openflow13.Ipv4DstField)
+			mask.Ipv4Dst = *self.Match.CtIpDaMask
+			ctIPDaField.HasMask = true
+			ctIPDaField.Mask = mask
+			ctIPDaField.Length += uint8(mask.Len())
 		}
 		ofMatch.AddField(*ctIPDaField)
 	}
@@ -1522,7 +1538,9 @@ func (self *Flow) LoadReg(fieldName string, data uint64, dataRange *openflow13.N
 	if err != nil {
 		return err
 	}
-	self.resetFieldLength(loadAct.Field)
+	if self.Table != nil && self.Table.Switch != nil {
+		loadAct.ResetFieldLength(self.Table.Switch)
+	}
 	action := new(FlowAction)
 	action.ActionType = loadAct.GetActionType()
 	action.loadAct = loadAct
@@ -1545,8 +1563,9 @@ func (self *Flow) MoveRegs(srcName string, dstName string, srcRange *openflow13.
 	if err != nil {
 		return err
 	}
-	self.resetFieldLength(moveAct.SrcField)
-	self.resetFieldLength(moveAct.DstField)
+	if self.Table != nil && self.Table.Switch != nil {
+		moveAct.ResetFieldsLength(self.Table.Switch)
+	}
 
 	action := new(FlowAction)
 	action.ActionType = moveAct.GetActionType()
@@ -1951,10 +1970,4 @@ func (self *Flow) Send(operationType int) error {
 	}
 	// Send the message
 	return self.Table.Switch.Send(flowMod)
-}
-
-func (self *Flow) resetFieldLength(field *openflow13.MatchField) {
-	if self.Table != nil && self.Table.Switch != nil {
-		ResetFieldLength(field, self.Table.Switch.tlvMgr.status)
-	}
 }

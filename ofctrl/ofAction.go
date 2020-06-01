@@ -353,6 +353,10 @@ func (a *NXLoadAction) GetActionType() string {
 	return ActTypeNXLoad
 }
 
+func (a *NXLoadAction) ResetFieldLength(ofSwitch *OFSwitch) {
+	ResetFieldLength(a.Field, ofSwitch.tlvMgr.status)
+}
+
 func NewNXLoadAction(fieldName string, data uint64, dataRange *openflow13.NXRange) (*NXLoadAction, error) {
 	field, err := openflow13.FindFieldHeaderByName(fieldName, true)
 	if err != nil {
@@ -379,6 +383,11 @@ func (a *NXMoveAction) GetActionMessage() openflow13.Action {
 
 func (a *NXMoveAction) GetActionType() string {
 	return ActTypeNXMove
+}
+
+func (a *NXMoveAction) ResetFieldsLength(ofSwitch *OFSwitch) {
+	ResetFieldLength(a.SrcField, ofSwitch.tlvMgr.status)
+	ResetFieldLength(a.DstField, ofSwitch.tlvMgr.status)
 }
 
 func NewNXMoveAction(srcName string, dstName string, srcRange *openflow13.NXRange, dstRange *openflow13.NXRange) (*NXMoveAction, error) {
