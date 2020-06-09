@@ -135,22 +135,16 @@ func (self *OFSwitch) DPID() net.HardwareAddr {
 
 // Sends an OpenFlow message to this Switch.
 func (self *OFSwitch) Send(req util.Message) error {
-	ch := make(chan struct{})
-	go func() {
-		self.stream.Outbound <- req
-		ch <- struct{}{}
-	}()
-	var err error
 	select {
 	case <-time.After(messageTimeout):
-		err = fmt.Errorf("message is timeout")
-	case <-ch:
-		break
+		return fmt.Errorf("message send timeout")
+	case self.stream.Outbound <- req:
+		return nil
 	case <-self.ctx.Done():
-		err = fmt.Errorf("message is canceled because of disconnection from the Switch")
+		return fmt.Errorf("message is canceled because of disconnection from the Switch")
 	}
-	return err
 }
+
 
 func (self *OFSwitch) Disconnect() {
 	self.stream.Shutdown <- true
