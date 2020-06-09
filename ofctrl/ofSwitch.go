@@ -133,7 +133,7 @@ func (self *OFSwitch) DPID() net.HardwareAddr {
 	return self.dpid
 }
 
- // Sends an OpenFlow message to this Switch.
+// Sends an OpenFlow message to this Switch.
 func (self *OFSwitch) Send(req util.Message) error {
 	select {
 	case <-time.After(messageTimeout):
