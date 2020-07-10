@@ -119,8 +119,57 @@ type SetTunnelDstAction struct {
 }
 
 func (a *SetTunnelDstAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewTunnelIpv4DstField(a.IP, nil)
+	var field *openflow13.MatchField
+	if a.IP.To4() == nil {
+		field = NewTunnelIpv6DstField(a.IP, nil)
+	} else {
+		field = openflow13.NewTunnelIpv4DstField(a.IP, nil)
+	}
 	return openflow13.NewActionSetField(*field)
+}
+
+func NewTunnelIpv6DstField(tunnelIpDst net.IP, tunnelIpDstMask *net.IP) *openflow13.MatchField {
+	f := new(openflow13.MatchField)
+	f.Class = openflow13.OXM_CLASS_NXM_1
+	f.Field = openflow13.NXM_NX_TUN_IPV6_DST
+	f.HasMask = false
+
+	ipDstField := new(openflow13.Ipv6DstField)
+	ipDstField.Ipv6Dst = tunnelIpDst
+	f.Value = ipDstField
+	f.Length = uint8(ipDstField.Len())
+
+	// Add the mask
+	if tunnelIpDstMask != nil {
+		mask := new(openflow13.Ipv6DstField)
+		mask.Ipv6Dst = *tunnelIpDstMask
+		f.Mask = mask
+		f.HasMask = true
+		f.Length += uint8(mask.Len())
+	}
+	return f
+}
+
+func NewTunnelIpv6SrcField(tunnelIpSrc net.IP, tunnelIpSrcMask *net.IP) *openflow13.MatchField {
+	f := new(openflow13.MatchField)
+	f.Class = openflow13.OXM_CLASS_NXM_1
+	f.Field = openflow13.NXM_NX_TUN_IPV6_SRC
+	f.HasMask = false
+
+	ipSrcField := new(openflow13.Ipv6SrcField)
+	ipSrcField.Ipv6Src = tunnelIpSrc
+	f.Value = ipSrcField
+	f.Length = uint8(ipSrcField.Len())
+
+	// Add the mask
+	if tunnelIpSrcMask != nil {
+		mask := new(openflow13.Ipv6SrcField)
+		mask.Ipv6Src = *tunnelIpSrcMask
+		f.Mask = mask
+		f.HasMask = true
+		f.Length += uint8(mask.Len())
+	}
+	return f
 }
 
 func (a *SetTunnelDstAction) GetActionType() string {
@@ -132,7 +181,12 @@ type SetTunnelSrcAction struct {
 }
 
 func (a *SetTunnelSrcAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewTunnelIpv4SrcField(a.IP, nil)
+	var field *openflow13.MatchField
+	if a.IP.To4() == nil {
+		field = NewTunnelIpv6SrcField(a.IP, nil)
+	} else {
+		field = openflow13.NewTunnelIpv4SrcField(a.IP, nil)
+	}
 	return openflow13.NewActionSetField(*field)
 }
 
@@ -146,7 +200,12 @@ type SetDstIPAction struct {
 }
 
 func (a *SetDstIPAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewIpv4DstField(a.IP, a.IPMask)
+	var field *openflow13.MatchField
+	if a.IP.To4() == nil {
+		field = openflow13.NewIpv6DstField(a.IP, a.IPMask)
+	} else {
+		field = openflow13.NewIpv4DstField(a.IP, a.IPMask)
+	}
 	return openflow13.NewActionSetField(*field)
 }
 
@@ -160,7 +219,12 @@ type SetSrcIPAction struct {
 }
 
 func (a *SetSrcIPAction) GetActionMessage() openflow13.Action {
-	field := openflow13.NewIpv4SrcField(a.IP, a.IPMask)
+	var field *openflow13.MatchField
+	if a.IP.To4() == nil {
+		field = openflow13.NewIpv6SrcField(a.IP, a.IPMask)
+	} else {
+		field = openflow13.NewIpv4SrcField(a.IP, a.IPMask)
+	}
 	return openflow13.NewActionSetField(*field)
 }
 
@@ -526,4 +590,24 @@ func (a *NXController) GetActionMessage() openflow13.Action {
 
 func (a *NXController) GetActionType() string {
 	return ActTypeController
+}
+
+type NXLoadXXRegAction struct {
+	FieldNumber uint8
+	Value       []byte
+	Mask        []byte
+}
+
+func (a *NXLoadXXRegAction) GetActionMessage() openflow13.Action {
+	fieldName := fmt.Sprintf("NXM_NX_XXREG%d", a.FieldNumber)
+	field, _ := openflow13.FindFieldHeaderByName(fieldName, len(a.Mask) > 0)
+	field.Value = &openflow13.ByteArrayField{Data: a.Value, Length: uint8(len(a.Value))}
+	if field.HasMask {
+		field.Mask = &openflow13.ByteArrayField{Data: a.Mask, Length: uint8(len(a.Mask))}
+	}
+	return openflow13.NewNXActionRegLoad2(field)
+}
+
+func (a *NXLoadXXRegAction) GetActionType() string {
+	return ActTypeNXLoad
 }

@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/contiv/libOpenflow/util"
 	"net"
 	"sync"
@@ -76,6 +77,7 @@ type FlowMatch struct {
 	ConjunctionID *uint32              // Add AddConjunction ID
 	CtStates      *openflow13.CTStates // Connection tracking states
 	NxRegs        []*NXRegister        // regX or regX[m..n]
+	XxRegs        []*XXRegister        // xxregN or xxRegN[m..n]
 	CtMark        uint32               // conn_track mark
 	CtMarkMask    *uint32              // Mask of conn_track mark
 	ActsetOutput  uint32               // Output port number
@@ -147,6 +149,11 @@ func (r *NXRegister) getShiftedValue() uint32 {
 		return r.Data
 	}
 	return r.Data << r.Range.GetOfs()
+}
+
+type XXRegister struct {
+	ID   int    // ID of NXM_NX_XXREG, value should be from 0 to 3
+	Data []byte // Data to cache in xxreg
 }
 
 type NXTunMetadata struct {
@@ -295,24 +302,14 @@ func (self *Flow) xlateMatch() openflow13.Match {
 
 	// Handle IPv6 Dst
 	if self.Match.Ipv6Da != nil {
-		if self.Match.Ipv6DaMask != nil {
-			ipv6DaField := openflow13.NewIpv6DstField(*self.Match.Ipv6Da, self.Match.Ipv6DaMask)
-			ofMatch.AddField(*ipv6DaField)
-		} else {
-			ipv6DaField := openflow13.NewIpv6DstField(*self.Match.Ipv6Da, nil)
-			ofMatch.AddField(*ipv6DaField)
-		}
+		ipv6DaField := openflow13.NewIpv6DstField(*self.Match.Ipv6Da, self.Match.Ipv6DaMask)
+		ofMatch.AddField(*ipv6DaField)
 	}
 
 	// Handle IPv6 Src
 	if self.Match.Ipv6Sa != nil {
-		if self.Match.Ipv6SaMask != nil {
-			ipv6SaField := openflow13.NewIpv6SrcField(*self.Match.Ipv6Sa, self.Match.Ipv6SaMask)
-			ofMatch.AddField(*ipv6SaField)
-		} else {
-			ipv6SaField := openflow13.NewIpv6SrcField(*self.Match.Ipv6Sa, nil)
-			ofMatch.AddField(*ipv6SaField)
-		}
+		ipv6SaField := openflow13.NewIpv6SrcField(*self.Match.Ipv6Sa, self.Match.Ipv6SaMask)
+		ofMatch.AddField(*ipv6SaField)
 	}
 
 	// Handle IP protocol
@@ -403,6 +400,16 @@ func (self *Flow) xlateMatch() openflow13.Match {
 			reg := merge(regs)
 			regField := openflow13.NewRegMatchField(reg.ID, reg.Data, reg.Range)
 			ofMatch.AddField(*regField)
+		}
+	}
+
+	// Handle xxreg match
+	if self.Match.XxRegs != nil {
+		for _, reg := range self.Match.XxRegs {
+			fieldName := fmt.Sprintf("NXM_NX_XXReg%d", reg.ID)
+			field, _ := openflow13.FindFieldHeaderByName(fieldName, false)
+			field.Value = &openflow13.ByteArrayField{Data: reg.Data, Length: uint8(len(reg.Data))}
+			ofMatch.AddField(*field)
 		}
 	}
 

@@ -33,6 +33,7 @@ import (
 
 const (
 	messageTimeout = 10 * time.Second
+	PC_NO_FLOOD    = 1 << 4
 )
 
 var (
@@ -144,7 +145,6 @@ func (self *OFSwitch) Send(req util.Message) error {
 		return fmt.Errorf("message is canceled because of disconnection from the Switch")
 	}
 }
-
 
 func (self *OFSwitch) Disconnect() {
 	self.stream.Shutdown <- true
@@ -259,6 +259,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 			errType: t.Type,
 			errCode: t.Code,
 			xID:     t.Xid,
+			msgType: UnknownMessage,
 		}
 		self.publishMessage(t.Xid, result)
 
@@ -273,8 +274,10 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 			result := MessageResult{
 				xID:     t.Header.Xid,
 				succeed: true,
+				msgType: BundleControlMessage,
 			}
-			self.publishMessage(t.Header.Xid, result)
+			reply := t.VendorData.(*openflow13.BundleControl)
+			self.publishMessage(reply.BundleID, result)
 		}
 
 	case *openflow13.SwitchFeatures:
@@ -327,7 +330,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		self.app.MultipartReply(self, rep)
 	case *openflow13.VendorError:
 		errData := t.ErrorMsg.Data.Bytes()
-		log.Errorf("Received Vendor error msg: %+v", errData)
+		log.Errorf("Received Vendor error, type: %d, code: %d, msg: %+v", t.Type, t.Code, errData)
 		result := MessageResult{
 			succeed:      false,
 			errType:      t.Type,
@@ -341,9 +344,12 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		case openflow13.ONF_EXPERIMENTER_ID:
 			switch experimenterType {
 			case openflow13.Type_BundleCtrl:
-				self.publishMessage(t.Xid, result)
+				bundleID := binary.BigEndian.Uint32(errData[20:24])
+				result.msgType = BundleControlMessage
+				self.publishMessage(bundleID, result)
 			case openflow13.Type_BundleAdd:
 				bundleID := binary.BigEndian.Uint32(errData[20:24])
+				result.msgType = BundleAddMessage
 				self.publishMessage(bundleID, result)
 			}
 		case openflow13.NxExperimenterID:
@@ -466,6 +472,7 @@ func (self *OFSwitch) unSubscribeMessage(xID uint32) {
 
 func (self *OFSwitch) sendModPortMessage(port int, mac net.HardwareAddr, config int, mask int) error {
 	msg := openflow13.NewPortMod(port)
+	msg.Header.Version = 0x4
 	msg.HWAddr = mac
 	msg.Config = uint32(config)
 	msg.Mask = uint32(mask)

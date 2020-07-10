@@ -1611,6 +1611,125 @@ func TestCtMatch(t *testing.T) {
 		"goto_table:1")
 }
 
+func TestIPv6Flows(t *testing.T) {
+	app := new(OfActor)
+	ctrl := NewController(app)
+	brName := "br4IPv6"
+	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
+	defer func() {
+		if err := ovsBr.DeleteBridge(brName); err != nil {
+			t.Errorf("Failed to delete br %s: %v", brName, err)
+		}
+		ctrl.Delete()
+	}()
+
+	app.Switch.EnableMonitor()
+
+	inport1 := uint32(1)
+	flow1 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x86dd,
+			InputPort: inport1,
+		},
+	}
+	sIP, ipNet, _ := net.ParseCIDR("abcd:234::2/32")
+	dIP := net.ParseIP("abcd:1234::2")
+	sIPMask := net.IP(ipNet.Mask)
+	setDIP := &SetDstIPAction{
+		IP:     dIP,
+		IPMask: nil,
+	}
+	setSIP := &SetSrcIPAction{
+		IP:     sIP,
+		IPMask: nil,
+	}
+	flow1.ApplyActions([]OFAction{setDIP, setSIP})
+	flow1.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, app.inputTable.TableId,
+		"priority=100,ipv6,in_port=1",
+		"set_field:abcd:1234::2->ipv6_dst,set_field:abcd:234::2->ipv6_src,goto_table:1")
+
+	flow2 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:   100,
+			Ethertype:  0x86dd,
+			Ipv6Sa:     &ipNet.IP,
+			Ipv6SaMask: &sIPMask,
+			Ipv6Da:     &dIP,
+		},
+	}
+	flow2.Drop()
+	verifyNewFlowInstallAndDelete(t, flow2, brName, app.inputTable.TableId,
+		"priority=100,ipv6,ipv6_src=abcd:234::/32,ipv6_dst=abcd:1234::2",
+		"drop")
+
+	inport3 := uint32(3)
+	flow3 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x86dd,
+			InputPort: inport3,
+		},
+	}
+	loadSIPAction := &NXLoadXXRegAction{
+		FieldNumber: 3,
+		Value:       dIP,
+		Mask:        nil,
+	}
+	flow3.ApplyActions([]OFAction{loadSIPAction})
+	flow3.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow3, brName, app.inputTable.TableId,
+		"priority=100,ipv6,in_port=3",
+		"set_field:0xabcd1234000000000000000000000002->xxreg3,goto_table:1")
+
+	inport4 := uint32(4)
+	flow4 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x86dd,
+			InputPort: inport4,
+			XxRegs: []*XXRegister{
+				&XXRegister{
+					ID:   3,
+					Data: dIP,
+				},
+			},
+		},
+	}
+	flow4.Drop()
+	verifyNewFlowInstallAndDelete(t, flow4, brName, app.inputTable.TableId,
+		"priority=100,ipv6,reg12=0xabcd1234,reg13=0,reg14=0,reg15=0x2,in_port=4",
+		"drop")
+}
+
+func TestDumpFlow(t *testing.T) {
+	app := new(OfActor)
+	ctrl := NewController(app)
+	brName := "br1"
+	go ctrl.Connect(fmt.Sprintf("/var/run/openvswitch/%s.mgmt", brName))
+	time.Sleep(4 * time.Second)
+	setOfTables(t, app, brName)
+	app.Switch.EnableMonitor()
+
+	cookieID := uint64(0x12)
+	cookieMask := ^uint64(0x0)
+	tableID := uint8(3)
+	flowMath := &FlowMatch{
+		Priority:  100,
+		Ethertype: 0x86dd,
+	}
+	stats, err := app.Switch.DumpFlowStats(cookieID, cookieMask, flowMath, &tableID)
+	assert.Nil(t, err)
+	for _, stat := range stats {
+		fmt.Printf("%v", stat.Match.Fields)
+	}
+}
+
 func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {
 	brName := ovsBr.OvsBridgeName
 	log.Infof("Enable monitor flows on Table %d in bridge %s", ofApp.inputTable.TableId, brName)

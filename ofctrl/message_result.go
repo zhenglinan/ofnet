@@ -1,11 +1,20 @@
 package ofctrl
 
+type MessageType int
+
+const (
+	UnknownMessage MessageType = iota
+	BundleControlMessage
+	BundleAddMessage
+)
+
 type MessageResult struct {
 	succeed      bool
 	errType      uint16
 	errCode      uint16
 	experimenter int32
 	xID          uint32
+	msgType      MessageType
 }
 
 func (r *MessageResult) IsSucceed() bool {

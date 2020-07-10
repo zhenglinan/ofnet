@@ -6,6 +6,7 @@ package ofctrl
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,7 +26,7 @@ const (
 	Ordered = TransactionType(openflow13.OFPBCT_ORDERED)
 )
 
-var uid uint32
+var uid uint32 = 1
 
 type OpenFlowModMessage interface {
 	resetXid(xid uint32) util.Message
@@ -39,7 +40,7 @@ type Transaction struct {
 	lock           sync.Mutex
 	successAdd     map[uint32]bool
 	controlReplyCh chan MessageResult
-	addErrorCh     chan MessageResult
+	controlIntCh   chan MessageResult
 }
 
 // NewTransaction creates a transaction on the switch. It will assign a bundle ID, and sets the bundle flags.
@@ -53,6 +54,7 @@ func (self *OFSwitch) NewTransaction(flag TransactionType) *Transaction {
 	}
 	tx.ofSwitch = self
 	tx.controlReplyCh = make(chan MessageResult)
+	tx.controlIntCh = make(chan MessageResult)
 	return tx
 }
 
@@ -66,14 +68,12 @@ func (tx *Transaction) getError(reply MessageResult) error {
 }
 
 func (tx *Transaction) sendControlRequest(xID uint32, msg util.Message) error {
-	tx.ofSwitch.subscribeMessage(xID, tx.controlReplyCh)
-	defer tx.ofSwitch.unSubscribeMessage(xID)
 	if err := tx.ofSwitch.Send(msg); err != nil {
 		return err
 	}
 
 	select {
-	case reply := <-tx.controlReplyCh:
+	case reply := <-tx.controlIntCh:
 		if reply.IsSucceed() {
 			return nil
 		} else {
@@ -117,34 +117,48 @@ func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (
 	return message, nil
 }
 
+func (tx *Transaction) listenReply() {
+	defer func() {
+		close(tx.controlIntCh)
+	}()
+	for {
+		select {
+		case reply := <-tx.controlReplyCh:
+			if reply.xID == 0 {
+				return
+			} else {
+				switch reply.msgType {
+				case BundleControlMessage:
+					tx.controlIntCh <- reply
+				case BundleAddMessage:
+					if !reply.succeed {
+						// Remove failed add message from successAdd.
+						tx.lock.Lock()
+						delete(tx.successAdd, reply.xID)
+						tx.lock.Unlock()
+					}
+				}
+			}
+
+		case <-tx.ofSwitch.ctx.Done():
+			log.Errorf("bundle is canceled because of disconnection from the Switch")
+			return
+		}
+	}
+}
+
 // Begin opens a bundle configuration.
 func (tx *Transaction) Begin() error {
 	message := tx.newBundleControlMessage(openflow13.OFPBCT_OPEN_REQUEST)
+	tx.ofSwitch.subscribeMessage(tx.ID, tx.controlReplyCh)
+	tx.successAdd = make(map[uint32]bool)
+	// Start a new goroutine to listen Bundle Control reply and error messages if received from OFSwitch.
+	go tx.listenReply()
+
 	err := tx.sendControlRequest(message.Header.Xid, message)
 	if err != nil {
 		return err
 	}
-	tx.addErrorCh = make(chan MessageResult, 10)
-	tx.successAdd = make(map[uint32]bool)
-	tx.ofSwitch.subscribeMessage(tx.ID, tx.addErrorCh)
-	// Start a new goroutine to listen add error messages if received from OFSwitch.
-	go func() {
-		for {
-			select {
-			case reply := <-tx.addErrorCh:
-				if reply.xID == 0 {
-					// Remove add message error channel when the bundle is closed.
-					tx.ofSwitch.unSubscribeMessage(tx.ID)
-					return
-				} else if !reply.succeed {
-					// Remove failed add message from successAdd.
-					tx.lock.Lock()
-					delete(tx.successAdd, reply.xID)
-					tx.lock.Unlock()
-				}
-			}
-		}
-	}()
 	return nil
 }
 
@@ -178,7 +192,6 @@ func (tx *Transaction) Complete() (int, error) {
 		if err := tx.sendControlRequest(msg1.Header.Xid, msg1); err != nil {
 			return 0, err
 		}
-		close(tx.addErrorCh)
 		tx.closed = true
 	}
 	return len(tx.successAdd), nil
@@ -189,6 +202,10 @@ func (tx *Transaction) Commit() error {
 	if !tx.closed {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
+	defer func() {
+		close(tx.controlReplyCh)
+		tx.ofSwitch.unSubscribeMessage(tx.ID)
+	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_COMMIT_REQUEST)
 	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
 		return err
@@ -201,6 +218,10 @@ func (tx *Transaction) Abort() error {
 	if !tx.closed {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
+	defer func() {
+		close(tx.controlReplyCh)
+		tx.ofSwitch.unSubscribeMessage(tx.ID)
+	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_DISCARD_REQUEST)
 	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
 		return err
