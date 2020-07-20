@@ -80,6 +80,10 @@ type FlowMatch struct {
 	XxRegs        []*XXRegister        // xxregN or xxRegN[m..n]
 	CtMark        uint32               // conn_track mark
 	CtMarkMask    *uint32              // Mask of conn_track mark
+	CtLabelLo     uint64               // conntrack label [0..63]
+	CtLabelHi     uint64               // conntrack label [64..127]
+	CtLabelLoMask uint64               // conntrack label masks [0..63]
+	CtLabelHiMask uint64               // conntrack label masks [64..127]
 	ActsetOutput  uint32               // Output port number
 	TunMetadatas  []*NXTunMetadata     // tun_metadataX or tun_metadataX[m..n]
 }
@@ -417,6 +421,20 @@ func (self *Flow) xlateMatch() openflow13.Match {
 	if self.Match.CtMark != 0 {
 		ctMarkField := openflow13.NewCTMarkMatchField(self.Match.CtMark, self.Match.CtMarkMask)
 		ofMatch.AddField(*ctMarkField)
+	}
+
+	if self.Match.CtLabelHi != 0 || self.Match.CtLabelLo != 0 {
+		var buf [16]byte
+		binary.BigEndian.PutUint64(buf[:8], self.Match.CtLabelHi)
+		binary.BigEndian.PutUint64(buf[8:], self.Match.CtLabelLo)
+		if self.Match.CtLabelLoMask != 0 || self.Match.CtLabelHiMask != 0 {
+			var maskBuf [16]byte
+			binary.BigEndian.PutUint64(maskBuf[:8], self.Match.CtLabelHiMask)
+			binary.BigEndian.PutUint64(maskBuf[8:], self.Match.CtLabelLoMask)
+			ofMatch.AddField(*openflow13.NewCTLabelMatchField(buf, &maskBuf))
+		} else {
+			ofMatch.AddField(*openflow13.NewCTLabelMatchField(buf, nil))
+		}
 	}
 
 	// Handle actset_output match
