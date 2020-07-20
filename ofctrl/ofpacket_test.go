@@ -120,6 +120,7 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 			MacDa:      &dstMAC,
 			IpSa:       &srcIP,
 			IpDa:       &dstIP,
+			IpProto:    IP_PROTO_TCP,
 			TcpDstPort: dstPort,
 		},
 	}

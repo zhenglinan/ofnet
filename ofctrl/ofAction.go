@@ -32,6 +32,11 @@ const (
 	ActTypeSetUDPdPort    = "setUDPDst"
 	ActTypeSetSCTPsPort   = "setSCTPSrc"
 	ActTypeSetSCTPdPort   = "setSCTPDst"
+	ActTypeSetNDTarget    = "setNDTarget"
+	ActTypeSetNDSLL       = "setNDSLL"
+	ActTypeSetNDTLL       = "setNDTLL"
+	ActTypeSetICMP6Type   = "setICMPv6Type"
+	ActTypeSetICMP6Code   = "setICMPv6Code"
 	ActTypeNXLoad         = "loadReg"
 	ActTypeNXMove         = "moveReg"
 	ActTypeNXCT           = "ct"
@@ -610,4 +615,74 @@ func (a *NXLoadXXRegAction) GetActionMessage() openflow13.Action {
 
 func (a *NXLoadXXRegAction) GetActionType() string {
 	return ActTypeNXLoad
+}
+
+type SetNDTargetAction struct {
+	Target net.IP
+}
+
+func (a *SetNDTargetAction) GetActionMessage() openflow13.Action {
+	field, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_TARGET", false)
+	field.Value = &openflow13.Ipv6DstField{Ipv6Dst: a.Target}
+	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetNDTargetAction) GetActionType() string {
+	return ActTypeSetNDTarget
+}
+
+type SetNDSLLAction struct {
+	MAC net.HardwareAddr
+}
+
+func (a *SetNDSLLAction) GetActionMessage() openflow13.Action {
+	field, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_SLL", false)
+	field.Value = &openflow13.EthSrcField{EthSrc: a.MAC}
+	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetNDSLLAction) GetActionType() string {
+	return ActTypeSetNDSLL
+}
+
+type SetNDTLLAction struct {
+	MAC net.HardwareAddr
+}
+
+func (a *SetNDTLLAction) GetActionMessage() openflow13.Action {
+	field, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_TLL", false)
+	field.Value = &openflow13.EthDstField{EthDst: a.MAC}
+	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetNDTLLAction) GetActionType() string {
+	return ActTypeSetNDTLL
+}
+
+type SetICMPv6TypeAction struct {
+	Type uint8
+}
+
+func (a *SetICMPv6TypeAction) GetActionMessage() openflow13.Action {
+	field, _ := openflow13.FindFieldHeaderByName("NXM_NX_ICMPV6_Type", false)
+	field.Value = &openflow13.IcmpTypeField{Type: a.Type}
+	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetICMPv6TypeAction) GetActionType() string {
+	return ActTypeSetICMP6Type
+}
+
+type SetICMPv6CodeAction struct {
+	Code uint8
+}
+
+func (a *SetICMPv6CodeAction) GetActionMessage() openflow13.Action {
+	field, _ := openflow13.FindFieldHeaderByName("NXM_NX_ICMPV6_Code", false)
+	field.Value = &openflow13.IcmpCodeField{Code: a.Code}
+	return openflow13.NewActionSetField(*field)
+}
+
+func (a *SetICMPv6CodeAction) GetActionType() string {
+	return ActTypeSetICMP6Code
 }

@@ -69,6 +69,12 @@ type FlowMatch struct {
 	SctpDstPort   uint16               // SCTP dest port
 	CtTpSrcPort   uint16               // Source port in the transport layer in ct
 	CtTpDstPort   uint16               // Dest port in the transport layer in ct
+	Icmp6Code     *uint8               // ICMPv6 code
+	Icmp6Type     *uint8               // ICMPv6 type
+	NdTarget      *net.IP              // ICMPv6 Neighbor Discovery Target
+	NdTargetMask  *net.IP              // Mask for ICMPv6 Neighbor Discovery Target
+	NdSll         *net.HardwareAddr    // ICMPv6 Neighbor Discovery Source Ethernet Address
+	NdTll         *net.HardwareAddr    // ICMPv6 Neighbor DIscovery Target Ethernet Address
 	Metadata      *uint64              // OVS metadata
 	MetadataMask  *uint64              // Metadata mask
 	TunnelId      uint64               // Vxlan Tunnel id i.e. VNI
@@ -516,6 +522,39 @@ func (self *Flow) xlateMatch() openflow13.Match {
 		ctTpDstPortField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_TP_DST", false)
 		ctTpDstPortField.Value = &PortField{port: self.Match.CtTpDstPort}
 		ofMatch.AddField(*ctTpDstPortField)
+	}
+
+	if self.Match.Icmp6Code != nil {
+		icmp6CodeField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ICMPV6_CODE", false)
+		icmp6CodeField.Value = &openflow13.IcmpCodeField{Code: *self.Match.Icmp6Code}
+		ofMatch.AddField(*icmp6CodeField)
+	}
+
+	if self.Match.Icmp6Type != nil {
+		icmp6TypeField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ICMPV6_Type", false)
+		icmp6TypeField.Value = &openflow13.IcmpTypeField{Type: *self.Match.Icmp6Type}
+		ofMatch.AddField(*icmp6TypeField)
+	}
+
+	if self.Match.NdTarget != nil {
+		ndTargetField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_TARGET", self.Match.NdTargetMask != nil)
+		ndTargetField.Value = &openflow13.Ipv6DstField{Ipv6Dst: *self.Match.NdTarget}
+		if self.Match.NdTargetMask != nil {
+			ndTargetField.Mask = &openflow13.Ipv6DstField{Ipv6Dst: *self.Match.NdTargetMask}
+		}
+		ofMatch.AddField(*ndTargetField)
+	}
+
+	if self.Match.NdSll != nil {
+		ndSllField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_SLL", false)
+		ndSllField.Value = &openflow13.EthSrcField{EthSrc: *self.Match.NdSll}
+		ofMatch.AddField(*ndSllField)
+	}
+
+	if self.Match.NdTll != nil {
+		ndTllField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_SLL", false)
+		ndTllField.Value = &openflow13.EthDstField{EthDst: *self.Match.NdTll}
+		ofMatch.AddField(*ndTllField)
 	}
 
 	return *ofMatch

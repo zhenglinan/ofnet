@@ -1705,6 +1705,31 @@ func TestIPv6Flows(t *testing.T) {
 	verifyNewFlowInstallAndDelete(t, flow4, brName, app.inputTable.TableId,
 		"priority=100,ipv6,reg12=0xabcd1234,reg13=0,reg14=0,reg15=0x2,in_port=4",
 		"drop")
+
+	inport5 := uint32(5)
+	icmp6Code := uint8(0)
+	icmp6Type := uint8(135)
+	flow5 := &Flow{
+		Table: app.inputTable,
+		Match: FlowMatch{
+			Priority:  100,
+			Ethertype: 0x86dd,
+			InputPort: inport5,
+			IpProto:   58,
+			Icmp6Type: &icmp6Type,
+			Icmp6Code: &icmp6Code,
+		},
+	}
+	tgtIP := net.ParseIP("2001:1:1:1443::ab:1004")
+	setNDTargetAct := &SetNDTargetAction{
+		Target: tgtIP,
+	}
+	setICMP6TypeAct := &SetICMPv6TypeAction{Type: 136}
+	flow5.ApplyActions([]OFAction{setNDTargetAct, setICMP6TypeAct})
+	flow5.Goto(app.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow5, brName, app.inputTable.TableId,
+		"priority=100,icmp6,in_port=5,icmp_type=135,icmp_code=0",
+		"set_field:2001:1:1:1443::ab:1004->nd_target,set_field:136->icmpv6_type,goto_table:1")
 }
 
 func TestDumpFlow(t *testing.T) {
