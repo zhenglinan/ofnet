@@ -601,15 +601,15 @@ func TestMatchIpv6Fields(t *testing.T) {
 	ipv6Da, _, _ := net.ParseCIDR("2016:0617::/100")
 	ipv6Mask := net.IP(ipv6Net.Mask)
 	inPortFlow, err := ofActor.inputTable.NewFlow(FlowMatch{
-		Priority:   100,
-		InputPort:  1,
-		Ethertype:  0x86DD,
-		Ipv6Sa:     &ipv6Sa,
-		Ipv6SaMask: &ipv6Mask,
-		Ipv6Da:     &ipv6Da,
-		Ipv6DaMask: &ipv6Mask,
-		IpProto:    IP_PROTO_TCP,
-		IpDscp:     23,
+		Priority:  100,
+		InputPort: 1,
+		Ethertype: 0x86DD,
+		IpSa:      &ipv6Sa,
+		IpSaMask:  &ipv6Mask,
+		IpDa:      &ipv6Da,
+		IpDaMask:  &ipv6Mask,
+		IpProto:   IP_PROTO_TCP,
+		IpDscp:    23,
 	})
 	if err != nil {
 		t.Errorf("Error creating inport flow. Err: %v", err)
@@ -1654,11 +1654,11 @@ func TestIPv6Flows(t *testing.T) {
 	flow2 := &Flow{
 		Table: app.inputTable,
 		Match: FlowMatch{
-			Priority:   100,
-			Ethertype:  0x86dd,
-			Ipv6Sa:     &ipNet.IP,
-			Ipv6SaMask: &sIPMask,
-			Ipv6Da:     &dIP,
+			Priority:  100,
+			Ethertype: 0x86dd,
+			IpSa:      &ipNet.IP,
+			IpSaMask:  &sIPMask,
+			IpDa:      &dIP,
 		},
 	}
 	flow2.Drop()

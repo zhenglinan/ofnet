@@ -52,10 +52,6 @@ type FlowMatch struct {
 	CtIpSaMask    *net.IP              // IPv4 source mask in ct
 	CtIpDa        *net.IP              // IPv4 dest addr in ct
 	CtIpDaMask    *net.IP              // IPv4 dest mask in ct
-	Ipv6Sa        *net.IP              // IPv6 source addr
-	Ipv6SaMask    *net.IP              // IPv6 source mask
-	Ipv6Da        *net.IP              // IPv6 dest addr
-	Ipv6DaMask    *net.IP              // IPv6 dest mask
 	CtIpv6Sa      *net.IP              // IPv6 source addr
 	CtIpv6Da      *net.IP              // IPv6 dest addr in ct
 	IpProto       uint8                // IP protocol
@@ -290,36 +286,24 @@ func (self *Flow) xlateMatch() openflow13.Match {
 
 	// Handle IP Dst
 	if self.Match.IpDa != nil {
-		if self.Match.IpDaMask != nil {
+		if self.Match.IpDa.To4() != nil {
 			ipDaField := openflow13.NewIpv4DstField(*self.Match.IpDa, self.Match.IpDaMask)
 			ofMatch.AddField(*ipDaField)
 		} else {
-			ipDaField := openflow13.NewIpv4DstField(*self.Match.IpDa, nil)
-			ofMatch.AddField(*ipDaField)
+			ipv6DaField := openflow13.NewIpv6DstField(*self.Match.IpDa, self.Match.IpDaMask)
+			ofMatch.AddField(*ipv6DaField)
 		}
 	}
 
 	// Handle IP Src
 	if self.Match.IpSa != nil {
-		if self.Match.IpSaMask != nil {
+		if self.Match.IpSa.To4() != nil {
 			ipSaField := openflow13.NewIpv4SrcField(*self.Match.IpSa, self.Match.IpSaMask)
 			ofMatch.AddField(*ipSaField)
 		} else {
-			ipSaField := openflow13.NewIpv4SrcField(*self.Match.IpSa, nil)
-			ofMatch.AddField(*ipSaField)
+			ipv6SaField := openflow13.NewIpv6SrcField(*self.Match.IpSa, self.Match.IpSaMask)
+			ofMatch.AddField(*ipv6SaField)
 		}
-	}
-
-	// Handle IPv6 Dst
-	if self.Match.Ipv6Da != nil {
-		ipv6DaField := openflow13.NewIpv6DstField(*self.Match.Ipv6Da, self.Match.Ipv6DaMask)
-		ofMatch.AddField(*ipv6DaField)
-	}
-
-	// Handle IPv6 Src
-	if self.Match.Ipv6Sa != nil {
-		ipv6SaField := openflow13.NewIpv6SrcField(*self.Match.Ipv6Sa, self.Match.Ipv6SaMask)
-		ofMatch.AddField(*ipv6SaField)
 	}
 
 	// Handle IP protocol
