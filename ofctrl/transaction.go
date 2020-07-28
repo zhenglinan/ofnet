@@ -6,7 +6,6 @@ package ofctrl
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -118,9 +117,6 @@ func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (
 }
 
 func (tx *Transaction) listenReply() {
-	defer func() {
-		close(tx.controlIntCh)
-	}()
 	for {
 		select {
 		case reply := <-tx.controlReplyCh:
@@ -139,10 +135,6 @@ func (tx *Transaction) listenReply() {
 					}
 				}
 			}
-
-		case <-tx.ofSwitch.ctx.Done():
-			log.Errorf("bundle is canceled because of disconnection from the Switch")
-			return
 		}
 	}
 }
@@ -204,6 +196,7 @@ func (tx *Transaction) Commit() error {
 	}
 	defer func() {
 		close(tx.controlReplyCh)
+		close(tx.controlIntCh)
 		tx.ofSwitch.unSubscribeMessage(tx.ID)
 	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_COMMIT_REQUEST)
@@ -220,6 +213,7 @@ func (tx *Transaction) Abort() error {
 	}
 	defer func() {
 		close(tx.controlReplyCh)
+		close(tx.controlIntCh)
 		tx.ofSwitch.unSubscribeMessage(tx.ID)
 	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_DISCARD_REQUEST)
