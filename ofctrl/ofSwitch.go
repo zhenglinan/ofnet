@@ -253,7 +253,9 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 
 		}
 	case *openflow13.ErrorMsg:
-		log.Errorf("Received ofp1.3 error msg, type: %d, code: %d, error data: %+v", t.Type, t.Code, t.Data)
+		errMsg := GetErrorMessage(t.Type, t.Code, 0)
+		msgType := GetErrorMessageType(t.Data)
+		log.Errorf("Received OpenFlow1.3 error: %s on message %s", errMsg, msgType)
 		result := MessageResult{
 			succeed: false,
 			errType: t.Type,
@@ -330,7 +332,6 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		self.app.MultipartReply(self, rep)
 	case *openflow13.VendorError:
 		errData := t.ErrorMsg.Data.Bytes()
-		log.Errorf("Received Vendor error, type: %d, code: %d, msg: %+v", t.Type, t.Code, errData)
 		result := MessageResult{
 			succeed:      false,
 			errType:      t.Type,
@@ -339,6 +340,7 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 			xID:          t.Xid,
 		}
 		experimenterID := binary.BigEndian.Uint32(errData[8:12])
+		errMsg := GetErrorMessage(t.Type, t.Code, experimenterID)
 		experimenterType := binary.BigEndian.Uint32(errData[12:16])
 		switch experimenterID {
 		case openflow13.ONF_EXPERIMENTER_ID:
@@ -347,13 +349,15 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 				bundleID := binary.BigEndian.Uint32(errData[20:24])
 				result.msgType = BundleControlMessage
 				self.publishMessage(bundleID, result)
+				log.Errorf("Received Vendor error: %s on ONFT_BUNDLE_CONTROL message", errMsg)
 			case openflow13.Type_BundleAdd:
 				bundleID := binary.BigEndian.Uint32(errData[20:24])
 				result.msgType = BundleAddMessage
 				self.publishMessage(bundleID, result)
+				log.Errorf("Received Vendor error: %s on ONFT_BUNDLE_ADD_MESSAGE message", errMsg)
 			}
-		case openflow13.NxExperimenterID:
-			log.Errorf("Received Nicira extension error msg: type: %d, code: %d, experimenterID: %d", t.Type, t.Code, t.ExperimenterID)
+		default:
+			log.Errorf("Received Vendor error: %s", errMsg)
 		}
 	}
 }
