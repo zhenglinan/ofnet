@@ -131,7 +131,7 @@ type Flow struct {
 	realized    bool          // Realized status of flow
 
 	appliedActions []OFAction
-	writeActions   []OFAction
+	writtenActions []OFAction
 	metadata       *writeMetadata
 	gotoTable      *uint8
 	clearActions   bool
@@ -1915,15 +1915,15 @@ func (self *Flow) ResetApplyActions(actions []OFAction) {
 }
 
 func (self *Flow) WriteAction(action OFAction) {
-	self.writeActions = append(self.writeActions, action)
+	self.writtenActions = append(self.writtenActions, action)
 }
 
 func (self *Flow) WriteActions(actions []OFAction) {
-	self.writeActions = append(self.writeActions, actions...)
+	self.writtenActions = append(self.writtenActions, actions...)
 }
 
 func (self *Flow) ResetWriteActions(actions []OFAction) {
-	self.writeActions = nil
+	self.writtenActions = nil
 	self.WriteActions(actions)
 }
 
@@ -1942,7 +1942,7 @@ func (self *Flow) ClearActions() {
 func (self *Flow) Drop() {
 	self.appliedActions = nil
 	self.metadata = nil
-	self.writeActions = nil
+	self.writtenActions = nil
 	self.clearActions = false
 	self.gotoTable = nil
 }
@@ -1993,9 +1993,9 @@ func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.Flow
 			}
 			flowMod.AddInstruction(clearInstruction)
 		}
-		if len(self.writeActions) > 0 {
+		if len(self.writtenActions) > 0 {
 			writeInstruction := openflow13.NewInstrWriteActions()
-			for _, act := range self.writeActions {
+			for _, act := range self.writtenActions {
 				if err := writeInstruction.AddAction(act.GetActionMessage(), false); err != nil {
 					return nil, err
 				}
@@ -2018,4 +2018,12 @@ func (self *Flow) Send(operationType int) error {
 	}
 	// Send the message
 	return self.Table.Switch.Send(flowMod)
+}
+
+func (self *Flow) CopyActionsToNewFlow(newFlow *Flow) {
+	newFlow.appliedActions = self.appliedActions
+	newFlow.clearActions = self.clearActions
+	newFlow.writtenActions = self.writtenActions
+	newFlow.gotoTable = self.gotoTable
+	newFlow.metadata = self.metadata
 }
