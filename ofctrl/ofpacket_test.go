@@ -5,8 +5,11 @@ import (
 	"math/rand"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/contiv/libOpenflow/protocol"
+	"github.com/contiv/libOpenflow/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +49,26 @@ func TestPacketIn_PacketOut(t *testing.T) {
 	}()
 
 	assert.Equal(t, 0, app.pktInCount)
-	testPacketInOut(t, app, brName)
+	testPacketInOut(t, app, brName, false)
+	assert.Equal(t, 1, app.pktInCount)
+}
+
+func TestPacketIn_PacketOut_IPv6(t *testing.T) {
+	app := new(packetApp)
+	app.OfActor = new(OfActor)
+	app.pktCh = make(chan *PacketIn)
+	ctrl := NewController(app)
+	brName := "br4pktv6"
+	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
+	defer func() {
+		if err := ovsBr.DeleteBridge(brName); err != nil {
+			t.Errorf("Failed to delete br %s: %v", brName, err)
+		}
+		ctrl.Delete()
+	}()
+
+	assert.Equal(t, 0, app.pktInCount)
+	testPacketInOut(t, app, brName, true)
 	assert.Equal(t, 1, app.pktInCount)
 }
 
@@ -86,7 +108,7 @@ func TestNxOutputAndSendController(t *testing.T) {
 		fmt.Sprintf("output:NXM_NX_REG0[],controller(max_len=128,id=%d)", app.Switch.ctrlID))
 }
 
-func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
+func testPacketInOut(t *testing.T, ofApp *packetApp, brName string, ipv6 bool) {
 	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
 	ofApp.Switch.EnableMonitor()
 
@@ -94,8 +116,15 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 
 	srcMAC, _ := net.ParseMAC("11:22:33:44:55:66")
 	dstMAC, _ := net.ParseMAC("66:55:44:33:22:11")
-	srcIP := net.ParseIP("1.1.1.2")
-	dstIP := net.ParseIP("2.2.2.1")
+	var srcIP net.IP
+	var dstIP net.IP
+	if ipv6 {
+		srcIP = net.ParseIP("2001::1")
+		dstIP = net.ParseIP("2002::1")
+	} else {
+		srcIP = net.ParseIP("1.1.1.2")
+		dstIP = net.ParseIP("2.2.2.1")
+	}
 	dstPort := uint16(1234)
 
 	table0 := ofSwitch.DefaultTable()
@@ -111,11 +140,18 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 	})
 	flow0.Send(openflow13.FC_ADD)
 
+	var ethertype uint16
+	if ipv6 {
+		ethertype = protocol.IPv6_MSG
+	} else {
+		ethertype = protocol.IPv4_MSG
+	}
+
 	flow1 := &Flow{
 		Table: table1,
 		Match: FlowMatch{
 			Priority:  100,
-			Ethertype: 0x0800,
+			Ethertype: ethertype,
 			MacSa:     &srcMAC,
 			MacDa:     &dstMAC,
 			IpSa:      &srcIP,
@@ -133,7 +169,12 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 	require.Nil(t, err)
 	act3, err := NewNXLoadAction("NXM_NX_REG1", uint64(0xaaaa), rng2)
 	require.Nil(t, err)
-	expectTunDst := net.ParseIP("10.10.10.10")
+	var expectTunDst net.IP
+	if ipv6 {
+		expectTunDst = net.ParseIP("2000::10")
+	} else {
+		expectTunDst = net.ParseIP("10.10.10.10")
+	}
 	act5 := &SetTunnelDstAction{IP: expectTunDst}
 	cxControllerAct := &NXController{ControllerID: ofSwitch.ctrlID}
 	flow1.ApplyActions([]OFAction{act1, act2, act3, act5, cxControllerAct})
@@ -141,9 +182,22 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 
 	act4, err := NewNXLoadAction("NXM_NX_REG3", uint64(0xaaaa), rng2)
 	packetOut := generateTCPPacketOut(srcMAC, dstMAC, srcIP, dstIP, dstPort, 0, nil, []OFAction{act4})
+	if ipv6 {
+		assert.NotNil(t, packetOut.IPv6Header)
+		assert.Nil(t, packetOut.IPHeader)
+		assert.Equal(t, dstIP, packetOut.IPv6Header.NWDst)
+	} else {
+		assert.NotNil(t, packetOut.IPHeader)
+		assert.Nil(t, packetOut.IPv6Header)
+	}
 	ofSwitch.Send(packetOut.GetMessage())
 
-	pktIn := <-ofApp.pktCh
+	var pktIn *PacketIn
+	select {
+	case pktIn = <-ofApp.pktCh:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("PacketIn timeout")
+	}
 	matchers := pktIn.GetMatches()
 	reg0Match := matchers.GetMatchByName("NXM_NX_REG0")
 	assert.NotNil(t, reg0Match)
@@ -161,10 +215,28 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 	assert.Equal(t, uint32(0xaaaa), reg1prev)
 	reg2Match := matchers.GetMatchByName("NXM_NX_REG2")
 	assert.Nil(t, reg2Match)
-	tunDstMatch := matchers.GetMatchByName("NXM_NX_TUN_IPV4_DST")
+	var tunDstMatch *MatchField
+	if ipv6 {
+		tunDstMatch = matchers.GetMatchByName("NXM_NX_TUN_IPV6_DST")
+	} else {
+		tunDstMatch = matchers.GetMatchByName("NXM_NX_TUN_IPV4_DST")
+	}
 	assert.NotNil(t, tunDstMatch)
 	tunDst := tunDstMatch.GetValue().(net.IP)
 	assert.Equal(t, expectTunDst, tunDst)
+	if ipv6 {
+		assert.Equal(t, uint16(protocol.IPv6_MSG), pktIn.Data.Ethertype)
+		var ipv6Obj protocol.IPv6
+		assert.Nil(t, ipv6Obj.UnmarshalBinary(pktIn.Data.Data.(*util.Buffer).Bytes()))
+		assert.Equal(t, srcIP, ipv6Obj.NWSrc)
+		assert.Equal(t, dstIP, ipv6Obj.NWDst)
+		assert.Equal(t, uint8(IP_PROTO_TCP), ipv6Obj.NextHeader)
+		var tcpObj protocol.TCP
+		assert.Nil(t, tcpObj.UnmarshalBinary(ipv6Obj.Data.(*util.Buffer).Bytes()))
+		assert.Equal(t, dstPort, tcpObj.PortDst)
+	} else {
+		assert.Equal(t, dstIP.To4(), pktIn.Data.Data.(*protocol.IPv4).NWDst)
+	}
 }
 
 func generateTCPPacketOut(srcMAC, dstMAC net.HardwareAddr, srcIP net.IP, dstIP net.IP, dstPort, srcPort uint16, outputPort *uint32, actions []OFAction) *PacketOut {
