@@ -1694,7 +1694,7 @@ func TestIPv6Flows(t *testing.T) {
 			Ethertype: 0x86dd,
 			InputPort: inport4,
 			XxRegs: []*XXRegister{
-				&XXRegister{
+				{
 					ID:   3,
 					Data: dIP,
 				},

@@ -455,14 +455,14 @@ func (self *OFSwitch) subscribeMessage(xID uint32, msgChan chan MessageResult) {
 }
 
 func (self *OFSwitch) publishMessage(xID uint32, result MessageResult) {
-	self.txLock.Lock()
-	defer self.txLock.Unlock()
-	ch, found := self.txChans[xID]
-	if found {
-		go func() {
+	go func() {
+		self.txLock.Lock()
+		defer self.txLock.Unlock()
+		ch, found := self.txChans[xID]
+		if found {
 			ch <- result
-		}()
-	}
+		}
+	}()
 }
 
 func (self *OFSwitch) unSubscribeMessage(xID uint32) {

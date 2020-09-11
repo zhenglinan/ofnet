@@ -6,6 +6,7 @@ package ofctrl
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -135,6 +136,9 @@ func (tx *Transaction) listenReply() {
 					}
 				}
 			}
+		case <-time.After(messageTimeout):
+			log.Println("Bundle receives no messages from OVS for 10s, close the channel")
+			return
 		}
 	}
 }
@@ -149,6 +153,7 @@ func (tx *Transaction) Begin() error {
 
 	err := tx.sendControlRequest(message.Header.Xid, message)
 	if err != nil {
+		tx.ofSwitch.unSubscribeMessage(tx.ID)
 		return err
 	}
 	return nil
