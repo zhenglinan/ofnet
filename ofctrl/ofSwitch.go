@@ -389,7 +389,7 @@ func (self *OFSwitch) EnableMonitor() {
 	self.monitorEnabled = true
 }
 
-func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *FlowMatch, tableID *uint8) ([]*openflow13.FlowStats, error) {
+func (self *OFSwitch) DumpFlowStats(cookieID uint64, cookieMask *uint64, flowMatch *FlowMatch, tableID *uint8) ([]*openflow13.FlowStats, error) {
 	mp := self.getMPReq()
 	replyChan := make(chan *openflow13.MultipartReply)
 	go func() {
@@ -401,8 +401,8 @@ func (self *OFSwitch) DumpFlowStats(cookieID, cookieMask uint64, flowMatch *Flow
 			flowMonitorReq.TableId = 0xff
 		}
 		flowMonitorReq.Cookie = cookieID
-		if cookieMask > 0 {
-			flowMonitorReq.CookieMask = cookieMask
+		if cookieMask != nil {
+			flowMonitorReq.CookieMask = *cookieMask
 		} else {
 			flowMonitorReq.CookieMask = ^uint64(0)
 		}

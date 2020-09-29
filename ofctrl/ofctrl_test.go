@@ -780,7 +780,7 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 
 	cookieID := roundID | categoryID
 	cookieMask := uint64(0xffffff)
-	stats, err := ofActor2.Switch.DumpFlowStats(cookieID, cookieMask, nil, nil)
+	stats, err := ofActor2.Switch.DumpFlowStats(cookieID, &cookieMask, nil, nil)
 	require.Nil(t, err)
 	if stats == nil {
 		t.Fatalf("Failed to dump flows")
@@ -1730,29 +1730,6 @@ func TestIPv6Flows(t *testing.T) {
 	verifyNewFlowInstallAndDelete(t, flow5, brName, app.inputTable.TableId,
 		"priority=100,icmp6,in_port=5,icmp_type=135,icmp_code=0",
 		"set_field:2001:1:1:1443::ab:1004->nd_target,set_field:136->icmpv6_type,goto_table:1")
-}
-
-func TestDumpFlow(t *testing.T) {
-	app := new(OfActor)
-	ctrl := NewController(app)
-	brName := "br1"
-	go ctrl.Connect(fmt.Sprintf("/var/run/openvswitch/%s.mgmt", brName))
-	time.Sleep(4 * time.Second)
-	setOfTables(t, app, brName)
-	app.Switch.EnableMonitor()
-
-	cookieID := uint64(0x12)
-	cookieMask := ^uint64(0x0)
-	tableID := uint8(3)
-	flowMath := &FlowMatch{
-		Priority:  100,
-		Ethertype: 0x86dd,
-	}
-	stats, err := app.Switch.DumpFlowStats(cookieID, cookieMask, flowMath, &tableID)
-	assert.Nil(t, err)
-	for _, stat := range stats {
-		fmt.Printf("%v", stat.Match.Fields)
-	}
 }
 
 func testNXExtensionNote(ofApp *OfActor, ovsBr *OvsDriver, t *testing.T) {

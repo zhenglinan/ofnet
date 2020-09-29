@@ -124,7 +124,7 @@ type Flow struct {
 	IdleTimeout uint16        // Timeout to remove the flow after its last hit
 	isInstalled bool          // Is the flow installed in the switch
 	CookieID    uint64        // Cookie ID for flowMod message
-	CookieMask  uint64        // Cookie Mask for flowMod message
+	CookieMask  *uint64       // Cookie Mask for flowMod message
 	flowActions []*FlowAction // List of flow Actions
 	lock        sync.RWMutex  // lock for modifying flow state
 	statusLock  sync.RWMutex  // lock for modifying flow realized status
@@ -1106,8 +1106,8 @@ func (self *Flow) GenerateFlowModMessage(commandType int) (flowMod *openflow13.F
 		globalFlowID += 1
 	}
 	flowMod.Cookie = self.CookieID
-	if self.CookieMask > 0 {
-		flowMod.CookieMask = self.CookieMask
+	if self.CookieMask != nil {
+		flowMod.CookieMask = *self.CookieMask
 	}
 	if self.HardTimeout > 0 {
 		flowMod.HardTimeout = self.HardTimeout
@@ -1840,10 +1840,10 @@ func (self *Flow) Delete() error {
 		flowMod.TableId = self.Table.TableId
 		flowMod.Priority = self.Match.Priority
 		flowMod.Cookie = self.CookieID
-		if self.CookieMask > 0 {
-			flowMod.CookieMask = self.CookieMask
+		if self.CookieMask != nil {
+			flowMod.CookieMask = *self.CookieMask
 		} else {
-			flowMod.CookieMask = 0xffffffffffffffff
+			flowMod.CookieMask = ^uint64(0)
 		}
 		flowMod.OutPort = openflow13.P_ANY
 		flowMod.OutGroup = openflow13.OFPG_ANY
@@ -1957,8 +1957,8 @@ func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.Flow
 		globalFlowID += 1
 	}
 	flowMod.Cookie = self.CookieID
-	if self.CookieMask > 0 {
-		flowMod.CookieMask = self.CookieMask
+	if self.CookieMask != nil {
+		flowMod.CookieMask = *self.CookieMask
 	}
 	if self.HardTimeout > 0 {
 		flowMod.HardTimeout = self.HardTimeout
