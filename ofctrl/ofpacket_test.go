@@ -114,14 +114,14 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string) {
 	flow1 := &Flow{
 		Table: table1,
 		Match: FlowMatch{
-			Priority:   100,
-			Ethertype:  0x0800,
-			MacSa:      &srcMAC,
-			MacDa:      &dstMAC,
-			IpSa:       &srcIP,
-			IpDa:       &dstIP,
-			IpProto:    IP_PROTO_TCP,
-			TcpDstPort: dstPort,
+			Priority:  100,
+			Ethertype: 0x0800,
+			MacSa:     &srcMAC,
+			MacDa:     &dstMAC,
+			IpSa:      &srcIP,
+			IpDa:      &dstIP,
+			IpProto:   IP_PROTO_TCP,
+			DstPort:   dstPort,
 		},
 	}
 	rng0 := openflow13.NewNXRange(0, 15)

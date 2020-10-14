@@ -31,38 +31,36 @@ import (
 
 // Small subset of openflow fields we currently support
 type FlowMatch struct {
-	Priority      uint16               // Priority of the flow
-	InputPort     uint32               // Input port number
-	MacDa         *net.HardwareAddr    // Mac dest
-	MacDaMask     *net.HardwareAddr    // Mac dest mask
-	MacSa         *net.HardwareAddr    // Mac source
-	MacSaMask     *net.HardwareAddr    // Mac source mask
-	Ethertype     uint16               // Ethertype
-	VlanId        uint16               // vlan id
-	ArpOper       uint16               // ARP Oper type
-	ArpSha        *net.HardwareAddr    // ARP source host address
-	ArpTha        *net.HardwareAddr    // ARP target host address
-	ArpSpa        *net.IP              // ARP source protocol address
-	ArpTpa        *net.IP              // ARP target protocol address
-	IpSa          *net.IP              // IPv4 source addr
-	IpSaMask      *net.IP              // IPv4 source mask
-	IpDa          *net.IP              // IPv4 dest addr
-	IpDaMask      *net.IP              // IPv4 dest mask
-	CtIpSa        *net.IP              // IPv4 source addr in ct
-	CtIpSaMask    *net.IP              // IPv4 source mask in ct
-	CtIpDa        *net.IP              // IPv4 dest addr in ct
-	CtIpDaMask    *net.IP              // IPv4 dest mask in ct
-	CtIpv6Sa      *net.IP              // IPv6 source addr
-	CtIpv6Da      *net.IP              // IPv6 dest addr in ct
-	IpProto       uint8                // IP protocol
-	CtIpProto     uint8                // IP protocol in ct
-	IpDscp        uint8                // DSCP/TOS field
-	TcpSrcPort    uint16               // TCP source port
-	TcpDstPort    uint16               // TCP dest port
-	UdpSrcPort    uint16               // UDP source port
-	UdpDstPort    uint16               // UDP dest port
-	SctpSrcPort   uint16               // SCTP source port
-	SctpDstPort   uint16               // SCTP dest port
+	Priority    uint16            // Priority of the flow
+	InputPort   uint32            // Input port number
+	MacDa       *net.HardwareAddr // Mac dest
+	MacDaMask   *net.HardwareAddr // Mac dest mask
+	MacSa       *net.HardwareAddr // Mac source
+	MacSaMask   *net.HardwareAddr // Mac source mask
+	Ethertype   uint16            // Ethertype
+	VlanId      uint16            // vlan id
+	ArpOper     uint16            // ARP Oper type
+	ArpSha      *net.HardwareAddr // ARP source host address
+	ArpTha      *net.HardwareAddr // ARP target host address
+	ArpSpa      *net.IP           // ARP source protocol address
+	ArpTpa      *net.IP           // ARP target protocol address
+	IpSa        *net.IP           // IPv4 source addr
+	IpSaMask    *net.IP           // IPv4 source mask
+	IpDa        *net.IP           // IPv4 dest addr
+	IpDaMask    *net.IP           // IPv4 dest mask
+	CtIpSa      *net.IP           // IPv4 source addr in ct
+	CtIpSaMask  *net.IP           // IPv4 source mask in ct
+	CtIpDa      *net.IP           // IPv4 dest addr in ct
+	CtIpDaMask  *net.IP           // IPv4 dest mask in ct
+	CtIpv6Sa    *net.IP           // IPv6 source addr
+	CtIpv6Da    *net.IP           // IPv6 dest addr in ct
+	IpProto     uint8             // IP protocol
+	CtIpProto   uint8             // IP protocol in ct
+	IpDscp      uint8             // DSCP/TOS field
+	SrcPort     uint16            // Source port in transport layer
+	SrcPortMask *uint16           // Mask for source port in transport layer
+	DstPort     uint16            // Dest port in transport layer
+	DstPortMask *uint16           // Mask for dest port in transport layer
 	CtTpSrcPort   uint16               // Source port in the transport layer in ct
 	CtTpDstPort   uint16               // Dest port in the transport layer in ct
 	Icmp6Code     *uint8               // ICMPv6 code
@@ -319,28 +317,46 @@ func (self *Flow) xlateMatch() openflow13.Match {
 	}
 
 	// Handle port numbers
-	if self.Match.IpProto == IP_PROTO_TCP && self.Match.TcpSrcPort != 0 {
-		portField := openflow13.NewTcpSrcField(self.Match.TcpSrcPort)
+	if self.Match.SrcPort != 0 {
+		var portField *openflow13.MatchField
+		switch self.Match.IpProto {
+		case IP_PROTO_UDP:
+			portField = openflow13.NewUdpSrcField(self.Match.SrcPort)
+		case IP_PROTO_SCTP:
+			portField = openflow13.NewSctpSrcField(self.Match.SrcPort)
+		case IP_PROTO_TCP:
+			fallthrough
+		default:
+			portField = openflow13.NewTcpSrcField(self.Match.SrcPort)
+		}
+
+		if self.Match.SrcPortMask != nil {
+			portField.HasMask = true
+			portMaskField := openflow13.NewPortField(*self.Match.SrcPortMask)
+			portField.Mask = portMaskField
+			portField.Length += uint8(portMaskField.Len())
+		}
 		ofMatch.AddField(*portField)
 	}
-	if self.Match.IpProto == IP_PROTO_TCP && self.Match.TcpDstPort != 0 {
-		portField := openflow13.NewTcpDstField(self.Match.TcpDstPort)
-		ofMatch.AddField(*portField)
-	}
-	if self.Match.IpProto == IP_PROTO_UDP && self.Match.UdpSrcPort != 0 {
-		portField := openflow13.NewUdpSrcField(self.Match.UdpSrcPort)
-		ofMatch.AddField(*portField)
-	}
-	if self.Match.IpProto == IP_PROTO_UDP && self.Match.UdpDstPort != 0 {
-		portField := openflow13.NewUdpDstField(self.Match.UdpDstPort)
-		ofMatch.AddField(*portField)
-	}
-	if self.Match.IpProto == IP_PROTO_SCTP && self.Match.SctpSrcPort != 0 {
-		portField := openflow13.NewSctpSrcField(self.Match.SctpSrcPort)
-		ofMatch.AddField(*portField)
-	}
-	if self.Match.IpProto == IP_PROTO_SCTP && self.Match.SctpDstPort != 0 {
-		portField := openflow13.NewSctpDstField(self.Match.SctpDstPort)
+
+	if self.Match.DstPort != 0 {
+		var portField *openflow13.MatchField
+		switch self.Match.IpProto {
+		case IP_PROTO_UDP:
+			portField = openflow13.NewUdpDstField(self.Match.DstPort)
+		case IP_PROTO_SCTP:
+			portField = openflow13.NewSctpDstField(self.Match.DstPort)
+		case IP_PROTO_TCP:
+			fallthrough
+		default:
+			portField = openflow13.NewTcpDstField(self.Match.DstPort)
+		}
+		if self.Match.DstPortMask != nil {
+			portField.HasMask = true
+			portMaskField := openflow13.NewPortField(*self.Match.DstPortMask)
+			portField.Mask = portMaskField
+			portField.Length += uint8(portMaskField.Len())
+		}
 		ofMatch.AddField(*portField)
 	}
 
