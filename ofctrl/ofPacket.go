@@ -18,6 +18,7 @@ type PacketOut struct {
 	SrcMAC     net.HardwareAddr
 	DstMAC     net.HardwareAddr
 	IPHeader   *protocol.IPv4
+	IPv6Header *protocol.IPv6
 	TCPHeader  *protocol.TCP
 	UDPHeader  *protocol.UDP
 	ICMPHeader *protocol.ICMP
@@ -51,6 +52,22 @@ func (p *PacketOut) getEthernetHeader() *protocol.Ethernet {
 	if p.ARPHeader != nil {
 		data = p.ARPHeader
 		ethType = 0x0806
+	} else if p.IPv6Header != nil {
+		switch {
+		case p.TCPHeader != nil:
+			p.IPv6Header.NextHeader = protocol.Type_TCP
+			p.IPv6Header.Data = p.TCPHeader
+		case p.UDPHeader != nil:
+			p.IPv6Header.NextHeader = protocol.Type_UDP
+			p.IPv6Header.Data = p.UDPHeader
+		case p.ICMPHeader != nil:
+			p.IPv6Header.NextHeader = protocol.Type_IPv6ICMP
+			p.IPv6Header.Data = p.ICMPHeader
+		default:
+			p.IPv6Header.NextHeader = 0xff
+		}
+		data = p.IPv6Header
+		ethType = protocol.IPv6_MSG
 	} else {
 		switch {
 		case p.TCPHeader != nil:
@@ -83,24 +100,42 @@ func (p *PacketIn) GetMatches() *Matchers {
 
 func GenerateTCPPacket(srcMAC, dstMAC net.HardwareAddr, srcIP, dstIP net.IP, dstPort, srcPort uint16, tcpFlags *uint8) *PacketOut {
 	tcpHeader := GenerateTCPHeader(dstPort, srcPort, tcpFlags)
-	ipHeader := &protocol.IPv4{
-		Version:        4,
-		IHL:            5,
-		Length:         20 + tcpHeader.Len(),
-		Id:             uint16(rand.Int()),
-		Flags:          0,
-		FragmentOffset: 0,
-		TTL:            64,
-		Protocol:       protocol.Type_TCP,
-		Checksum:       0,
-		NWSrc:          srcIP,
-		NWDst:          dstIP,
-	}
-	pktOut := &PacketOut{
-		SrcMAC:    srcMAC,
-		DstMAC:    dstMAC,
-		IPHeader:  ipHeader,
-		TCPHeader: tcpHeader,
+	var pktOut *PacketOut
+	if srcIP.To4() == nil {
+		ipv6Header := &protocol.IPv6{
+			Version:        6,
+			Length:         tcpHeader.Len(),
+			HopLimit:       64,
+			NextHeader:     protocol.Type_TCP,
+			NWSrc:          srcIP,
+			NWDst:          dstIP,
+		}
+		pktOut = &PacketOut{
+			SrcMAC:     srcMAC,
+			DstMAC:     dstMAC,
+			IPv6Header: ipv6Header,
+			TCPHeader:  tcpHeader,
+		}
+	} else {
+		ipHeader := &protocol.IPv4{
+			Version:        4,
+			IHL:            5,
+			Length:         20 + tcpHeader.Len(),
+			Id:             uint16(rand.Int()),
+			Flags:          0,
+			FragmentOffset: 0,
+			TTL:            64,
+			Protocol:       protocol.Type_TCP,
+			Checksum:       0,
+			NWSrc:          srcIP,
+			NWDst:          dstIP,
+		}
+		pktOut = &PacketOut{
+			SrcMAC:    srcMAC,
+			DstMAC:    dstMAC,
+			IPHeader:  ipHeader,
+			TCPHeader: tcpHeader,
+		}
 	}
 
 	return pktOut
