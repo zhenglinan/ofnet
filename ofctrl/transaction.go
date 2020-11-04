@@ -200,9 +200,9 @@ func (tx *Transaction) Commit() error {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
 	defer func() {
+		tx.ofSwitch.unSubscribeMessage(tx.ID)
 		close(tx.controlReplyCh)
 		close(tx.controlIntCh)
-		tx.ofSwitch.unSubscribeMessage(tx.ID)
 	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_COMMIT_REQUEST)
 	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
