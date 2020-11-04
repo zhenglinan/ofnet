@@ -32,9 +32,7 @@ import (
 )
 
 const (
-	// The default BUNDLE_IDLE_TIMEOUT is 10s and we need wait a bit
-	// longer to overcome the timer difference.
-	messageTimeout = 13 * time.Second
+	messageTimeout = 10 * time.Second
 	PC_NO_FLOOD    = 1 << 4
 )
 
@@ -462,15 +460,7 @@ func (self *OFSwitch) publishMessage(xID uint32, result MessageResult) {
 		defer self.txLock.Unlock()
 		ch, found := self.txChans[xID]
 		if found {
-			select {
-			case ch <- result:
-			case <-time.After(messageTimeout):
-				// If the receiver does not accept the message after 10s
-				// we just drop the message. Since both sender and receiver
-				// are in Go world, there should not be 10s idle in theory.
-				// The receiver will also not wait for a message longer than
-				// messageTimeout.
-			}
+			ch <- result
 		}
 	}()
 }
