@@ -6,13 +6,13 @@ package ofctrl
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/contiv/libOpenflow/openflow13"
 	"github.com/contiv/libOpenflow/util"
+	log "github.com/sirupsen/logrus"
 )
 
 type TransactionType uint16
@@ -53,8 +53,8 @@ func (self *OFSwitch) NewTransaction(flag TransactionType) *Transaction {
 		tx.flag = flag
 	}
 	tx.ofSwitch = self
-	tx.controlReplyCh = make(chan MessageResult)
-	tx.controlIntCh = make(chan MessageResult)
+	tx.controlReplyCh = make(chan MessageResult, 10)
+	tx.controlIntCh = make(chan MessageResult, 1)
 	return tx
 }
 
@@ -120,25 +120,25 @@ func (tx *Transaction) createBundleAddFlowMessage(flowMod *openflow13.FlowMod) (
 func (tx *Transaction) listenReply() {
 	for {
 		select {
-		case reply := <-tx.controlReplyCh:
-			if reply.xID == 0 {
+		case reply, ok := <-tx.controlReplyCh:
+			if !ok { // controlReplyCh closed.
 				return
-			} else {
-				switch reply.msgType {
-				case BundleControlMessage:
-					tx.controlIntCh <- reply
-				case BundleAddMessage:
-					if !reply.succeed {
-						// Remove failed add message from successAdd.
-						tx.lock.Lock()
-						delete(tx.successAdd, reply.xID)
-						tx.lock.Unlock()
-					}
+			}
+			switch reply.msgType {
+			case BundleControlMessage:
+				select {
+				case tx.controlIntCh <- reply:
+				case <-time.After(messageTimeout):
+					log.Warningln("BundleControlMessage reply message accept timeout")
+				}
+			case BundleAddMessage:
+				if !reply.succeed {
+					// Remove failed add message from successAdd.
+					tx.lock.Lock()
+					delete(tx.successAdd, reply.xID)
+					tx.lock.Unlock()
 				}
 			}
-		case <-time.After(messageTimeout):
-			log.Println("Bundle receives no messages from OVS for 10s, close the channel")
-			return
 		}
 	}
 }
@@ -154,6 +154,7 @@ func (tx *Transaction) Begin() error {
 	err := tx.sendControlRequest(message.Header.Xid, message)
 	if err != nil {
 		tx.ofSwitch.unSubscribeMessage(tx.ID)
+		close(tx.controlReplyCh)
 		return err
 	}
 	return nil
@@ -200,9 +201,8 @@ func (tx *Transaction) Commit() error {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
 	defer func() {
-		close(tx.controlReplyCh)
-		close(tx.controlIntCh)
 		tx.ofSwitch.unSubscribeMessage(tx.ID)
+		close(tx.controlReplyCh)
 	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_COMMIT_REQUEST)
 	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
@@ -217,9 +217,8 @@ func (tx *Transaction) Abort() error {
 		return fmt.Errorf("transaction %d is not complete", tx.ID)
 	}
 	defer func() {
-		close(tx.controlReplyCh)
-		close(tx.controlIntCh)
 		tx.ofSwitch.unSubscribeMessage(tx.ID)
+		close(tx.controlReplyCh)
 	}()
 	msg := tx.newBundleControlMessage(openflow13.OFPBCT_DISCARD_REQUEST)
 	if err := tx.sendControlRequest(msg.Header.Xid, msg); err != nil {
