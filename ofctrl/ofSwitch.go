@@ -346,12 +346,12 @@ func (self *OFSwitch) handleMessages(dpid net.HardwareAddr, msg util.Message) {
 		case openflow13.ONF_EXPERIMENTER_ID:
 			switch experimenterType {
 			case openflow13.Type_BundleCtrl:
-				bundleID := binary.BigEndian.Uint32(errData[20:24])
+				bundleID := binary.BigEndian.Uint32(errData[16:20])
 				result.msgType = BundleControlMessage
 				self.publishMessage(bundleID, result)
 				log.Errorf("Received Vendor error: %s on ONFT_BUNDLE_CONTROL message", errMsg)
 			case openflow13.Type_BundleAdd:
-				bundleID := binary.BigEndian.Uint32(errData[20:24])
+				bundleID := binary.BigEndian.Uint32(errData[16:20])
 				result.msgType = BundleAddMessage
 				self.publishMessage(bundleID, result)
 				log.Errorf("Received Vendor error: %s on ONFT_BUNDLE_ADD_MESSAGE message", errMsg)

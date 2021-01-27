@@ -133,10 +133,12 @@ func (tx *Transaction) listenReply() {
 				}
 			case BundleAddMessage:
 				if !reply.succeed {
-					// Remove failed add message from successAdd.
-					tx.lock.Lock()
-					delete(tx.successAdd, reply.xID)
-					tx.lock.Unlock()
+					func() {
+						tx.lock.Lock()
+						defer tx.lock.Unlock()
+						// Remove failed add message from successAdd.
+						delete(tx.successAdd, reply.xID)
+					}()
 				}
 			}
 		}
@@ -192,6 +194,8 @@ func (tx *Transaction) Complete() (int, error) {
 		}
 		tx.closed = true
 	}
+	tx.lock.Lock()
+	defer tx.lock.Unlock()
 	return len(tx.successAdd), nil
 }
 
