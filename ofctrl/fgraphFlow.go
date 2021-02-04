@@ -86,6 +86,8 @@ type FlowMatch struct {
 	CtLabelHiMask uint64               // conntrack label masks [64..127]
 	ActsetOutput  uint32               // Output port number
 	TunMetadatas  []*NXTunMetadata     // tun_metadataX or tun_metadataX[m..n]
+	PktMark       uint32               // Packet mark
+	PktMarkMask   *uint32              // Packet mark mask
 }
 
 // additional Actions in flow's instruction set
@@ -555,6 +557,16 @@ func (self *Flow) xlateMatch() openflow13.Match {
 		ndTllField, _ := openflow13.FindFieldHeaderByName("NXM_NX_ND_SLL", false)
 		ndTllField.Value = &openflow13.EthDstField{EthDst: *self.Match.NdTll}
 		ofMatch.AddField(*ndTllField)
+	}
+
+	// Handle pkt_mark match
+	if self.Match.PktMark != 0 {
+		pktMarkField, _ := openflow13.FindFieldHeaderByName("NXM_NX_PKT_MARK", self.Match.PktMarkMask != nil)
+		pktMarkField.Value = &openflow13.Uint32Message{Data: self.Match.PktMark}
+		if self.Match.PktMarkMask != nil {
+			pktMarkField.Mask = &openflow13.Uint32Message{Data: *self.Match.PktMarkMask}
+		}
+		ofMatch.AddField(*pktMarkField)
 	}
 
 	return *ofMatch
