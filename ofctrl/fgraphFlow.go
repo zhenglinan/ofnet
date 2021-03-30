@@ -136,6 +136,7 @@ type Flow struct {
 	metadata       *writeMetadata
 	gotoTable      *uint8
 	clearActions   bool
+	meter          *uint32
 }
 
 type writeMetadata struct {
@@ -1971,6 +1972,10 @@ func (self *Flow) WriteMetadata(metadata uint64, metadataMask uint64) {
 	self.metadata = &writeMetadata{metadata, metadataMask}
 }
 
+func (self *Flow) Meter(meterId uint32) {
+	self.meter = &meterId
+}
+
 func (self *Flow) Goto(tableID uint8) {
 	self.gotoTable = &tableID
 }
@@ -1985,6 +1990,7 @@ func (self *Flow) Drop() {
 	self.writtenActions = nil
 	self.clearActions = false
 	self.gotoTable = nil
+	self.meter = nil
 }
 
 func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.FlowMod, err error) {
@@ -2046,6 +2052,10 @@ func (self *Flow) generateFlowMessage(commandType int) (flowMod *openflow13.Flow
 			gotoTableInstruction := openflow13.NewInstrGotoTable(*self.gotoTable)
 			flowMod.AddInstruction(gotoTableInstruction)
 		}
+		if self.meter != nil {
+			meterInstruction := openflow13.NewInstrMeter(*self.meter)
+			flowMod.AddInstruction(meterInstruction)
+		}
 	}
 	return flowMod, nil
 }
@@ -2066,4 +2076,5 @@ func (self *Flow) CopyActionsToNewFlow(newFlow *Flow) {
 	newFlow.writtenActions = self.writtenActions
 	newFlow.gotoTable = self.gotoTable
 	newFlow.metadata = self.metadata
+	newFlow.meter = self.meter
 }
