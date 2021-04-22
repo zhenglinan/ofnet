@@ -54,6 +54,7 @@ type OFSwitch struct {
 	statusMux      sync.Mutex
 	outputPorts    map[uint32]*Output
 	groupDb        map[uint32]*Group
+	meterDb        map[uint32]*Meter
 	connCh         chan int // Channel to notify controller connection status is changed
 	mQueue         chan *openflow13.MultipartRequest
 	monitorEnabled bool
