@@ -27,6 +27,7 @@ func (self *OFSwitch) initFgraph() error {
 	// Create the DBs
 	self.tableDb = make(map[uint8]*Table)
 	self.groupDb = make(map[uint32]*Group)
+	self.meterDb = make(map[uint32]*Meter)
 	self.outputPorts = make(map[uint32]*Output)
 
 	// Create the table 0
@@ -104,12 +105,12 @@ func (self *OFSwitch) DefaultTable() *Table {
 
 // Create a new group. return an error if it already exists
 func (self *OFSwitch) NewGroup(groupId uint32, groupType GroupType) (*Group, error) {
-	// check if the table already exists
+	// check if the group already exists
 	if self.groupDb[groupId] != nil {
-		return nil, errors.New("Group already exists")
+		return nil, errors.New("group already exists")
 	}
 
-	// Create a new table
+	// Create a new group
 	group := newGroup(groupId, groupType, self)
 	// Save it in the DB
 	self.groupDb[groupId] = group
@@ -127,6 +128,33 @@ func (self *OFSwitch) DeleteGroup(groupId uint32) error {
 // GetGroup Returns a group
 func (self *OFSwitch) GetGroup(groupId uint32) *Group {
 	return self.groupDb[groupId]
+}
+
+// Create a new meter. return an error if it already exists
+func (self *OFSwitch) NewMeter(meterId uint32, flags MeterFlag) (*Meter, error) {
+	// check if the meter already exists
+	if _, ok := self.meterDb[meterId]; ok {
+		return nil, errors.New("meter already exists")
+	}
+
+	// Create a new meter
+	meter := newMeter(meterId, flags, self)
+	// Save it in the DB
+	self.meterDb[meterId] = meter
+
+	return meter, nil
+}
+
+// Delete a meter.
+// Return an error if there are flows refer pointing at it
+func (self *OFSwitch) DeleteMeter(meterId uint32) error {
+	delete(self.meterDb, meterId)
+	return nil
+}
+
+// GetGroup Returns a meter
+func (self *OFSwitch) GetMeter(meterId uint32) *Meter {
+	return self.meterDb[meterId]
 }
 
 // Return a output graph element for the port
