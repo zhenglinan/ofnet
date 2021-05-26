@@ -58,7 +58,7 @@ func (self *Meter) AddMeterBand(meterBands ...*util.Message) {
 func (self *Meter) Install() error {
 	command := openflow13.OFPMC_ADD
 	if self.isInstalled {
-		command = openflow13.OFPGC_MODIFY
+		command = openflow13.OFPMC_MODIFY
 	}
 	meterMod := self.getMeterModMessage(command)
 
@@ -78,7 +78,7 @@ func (self *Meter) getMeterModMessage(command int) *openflow13.MeterMod {
 	meterMod.Flags = uint16(self.Flags)
 
 	for _, mb := range self.MeterBands {
-		// Add the meterBands to group
+		// Add the meterBands to meter
 		meterMod.AddMeterBand(*mb)
 	}
 	meterMod.Command = uint16(command)
@@ -95,7 +95,7 @@ func (self *Meter) Delete() error {
 	if self.isInstalled {
 		meterMod := openflow13.NewMeterMod()
 		meterMod.MeterId = self.ID
-		meterMod.Command = openflow13.OFPGC_DELETE
+		meterMod.Command = openflow13.OFPMC_DELETE
 		if err := self.Switch.Send(meterMod); err != nil {
 			return err
 		}
