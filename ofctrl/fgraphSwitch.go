@@ -60,7 +60,21 @@ func (self *OFSwitch) initFgraph() error {
 	groupMod.GroupId = openflow13.OFPG_ALL
 	groupMod.Command = openflow13.OFPGC_DELETE
 	groupMod.Type = openflow13.OFPGT_ALL
-	return self.Send(groupMod)
+	if err := self.Send(groupMod); err != nil {
+		return err
+	}
+
+	// Clear all existing meter entries
+	// TODO: this should be defined in libOpenflow
+	const OFPM_ALL = 0xffffffff // Represents all meters
+	meterMod := openflow13.NewMeterMod()
+	meterMod.MeterId = OFPM_ALL
+	meterMod.Command = openflow13.OFPMC_DELETE
+	if err := self.Send(meterMod); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Create a new table. return an error if it already exists
