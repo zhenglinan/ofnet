@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/contiv/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/openflow13"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

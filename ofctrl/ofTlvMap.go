@@ -3,7 +3,7 @@ package ofctrl
 import (
 	"fmt"
 
-	"github.com/contiv/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/openflow13"
 )
 
 type TLVTableStatus openflow13.TLVTableReply

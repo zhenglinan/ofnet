@@ -17,7 +17,7 @@ package ofctrl
 // This file defines the forwarding graph API
 
 import (
-	"github.com/contiv/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/openflow13"
 )
 
 // This implements a forwarding graph.

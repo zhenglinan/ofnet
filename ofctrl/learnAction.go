@@ -1,6 +1,6 @@
 package ofctrl
 
-import "github.com/contiv/libOpenflow/openflow13"
+import "antrea.io/libOpenflow/openflow13"
 
 type FlowLearn struct {
 	idleTimeout    uint16

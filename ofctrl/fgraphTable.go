@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/contiv/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/openflow13"
 
 	log "github.com/sirupsen/logrus"
 )

@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/contiv/libOpenflow/openflow13"
-	"github.com/contiv/libOpenflow/util"
+	"antrea.io/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/util"
 	log "github.com/sirupsen/logrus"
 )
 

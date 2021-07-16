@@ -21,11 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/contiv/libOpenflow/util"
+	"antrea.io/libOpenflow/util"
 	"net"
 	"sync"
 
-	"github.com/contiv/libOpenflow/openflow13"
+	"antrea.io/libOpenflow/openflow13"
 	log "github.com/sirupsen/logrus"
 )
 
