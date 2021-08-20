@@ -411,7 +411,7 @@ func (self *OFSwitch) DumpFlowStats(cookieID uint64, cookieMask *uint64, flowMat
 			f := &Flow{Match: *flowMatch}
 			flowMonitorReq.Match = f.xlateMatch()
 		}
-		mp.Body = flowMonitorReq
+		mp.Body = []util.Message{flowMonitorReq}
 		monitoredFlows.Set(fmt.Sprintf("%d", mp.Xid), replyChan)
 		self.mQueue <- mp
 	}()
