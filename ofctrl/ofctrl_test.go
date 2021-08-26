@@ -73,14 +73,10 @@ func (o *OfActor) TLVMapReplyRcvd(sw *OFSwitch, tlvTableStatus *TLVTableStatus) 
 	}
 }
 
-var ofActor OfActor
+// Controller/Application/ovsBr work on clientMode
+var ofActor *OfActor
 var ctrler *Controller
 var ovsDriver *OvsDriver
-
-// Controller/Application/ovsBr work on clientMode
-var ofActor2 *OfActor
-var ctrler2 *Controller
-var ovsDriver2 *OvsDriver
 
 // Run an ovs-ofctl command
 func runOfctlCmd(cmd, brName string) ([]byte, error) {
@@ -98,7 +94,7 @@ func runOfctlCmd(cmd, brName string) ([]byte, error) {
 func ofctlFlowDump(brName string) ([]string, error) {
 	flowDump, err := runOfctlCmd("dump-flows", brName)
 	if err != nil {
-		log.Errorf("Error running dump-flows on %s. Err: %v", brName, err)
+		log.Errorf("Error running dump-flows on %s: %v", brName, err)
 		return nil, err
 	}
 
@@ -152,33 +148,20 @@ func ofctlDumpFlowMatch(brName string, tableId int, matchStr, actStr string) boo
 
 // Test if OVS switch connects successfully
 func TestMain(m *testing.M) {
+	var err error
 	//Create a controller
-	ctrler = NewController(&ofActor)
-	ofActor2 = new(OfActor)
-	ctrler2 = NewController(ofActor2)
-
-	// start listening
-	go ctrler.Listen(":6733")
-
-	// Connect to ovsdb and add the controller
-	ovsDriver = NewOvsDriver("ovsbr11")
-	err := ovsDriver.AddController("127.0.0.1", 6733)
-	if err != nil {
-		log.Fatalf("Error adding controller to ovs")
-	}
+	ofActor = new(OfActor)
+	ctrler = NewController(ofActor)
 
 	// Create ovs bridge and connect clientMode Controller to it
-	ovsDriver2 = NewOvsDriver("ovsbr12")
+	ovsDriver = NewOvsDriver("ovsbr12")
 	//wait for 2sec and see if ovs br created
 	time.Sleep(2 * time.Second)
-	go ctrler2.Connect("/var/run/openvswitch/ovsbr12.mgmt")
+	go ctrler.Connect("/var/run/openvswitch/ovsbr12.mgmt")
 
 	//wait for 10sec and see if switch connects
 	time.Sleep(8 * time.Second)
 	if !ofActor.isSwitchConnected {
-		log.Fatalf("ovsbr0 switch did not connect within 20sec")
-	}
-	if !ofActor2.isSwitchConnected {
 		log.Fatalf("ovsbr12 switch did not connect within 20sec")
 	}
 
@@ -193,19 +176,7 @@ func TestMain(m *testing.M) {
 
 	ofActor.nextTable, err = ofActor.Switch.NewTable(1)
 	if err != nil {
-		log.Fatalf("Error creating next Table. Err: %v", err)
-		return
-	}
-
-	ofActor2.inputTable = ofActor2.Switch.DefaultTable()
-	if ofActor2.inputTable == nil {
-		log.Fatalf("Failed to get input Table")
-		return
-	}
-
-	ofActor2.nextTable, err = ofActor2.Switch.NewTable(1)
-	if err != nil {
-		log.Fatalf("Error creating next Table. Err: %v", err)
+		log.Fatalf("Error creating next Table: %v", err)
 		return
 	}
 	log.Infof("Openflow tables created successfully")
@@ -214,15 +185,9 @@ func TestMain(m *testing.M) {
 	exitCode := m.Run()
 
 	// delete the bridge
-	for _, br := range []string{
-		"ovsbr11",
-		"ovsbr12",
-	} {
-		err = ovsDriver.DeleteBridge(br)
-		if err != nil {
-			log.Fatalf("Error deleting the bridge. Err: %v", err)
-		}
-
+	err = ovsDriver.DeleteBridge(ovsDriver.OvsBridgeName)
+	if err != nil {
+		log.Fatalf("Error deleting the bridge: %v", err)
 	}
 
 	os.Exit(exitCode)
@@ -237,9 +202,7 @@ func TestTableCreateDelete(t *testing.T) {
 	for i := 2; i < 12; i++ {
 		var err error
 		tables[i], err = ofActor.Switch.NewTable(uint8(i))
-		if err != nil {
-			t.Errorf("Error creating table: %d", i)
-		}
+		assert.NoErrorf(t, err, "Error creating table: %d", i)
 	}
 
 	log.Infof("Deleting tables..")
@@ -247,9 +210,7 @@ func TestTableCreateDelete(t *testing.T) {
 	// delete the tables
 	for i := 2; i < 12; i++ {
 		err := tables[i].Delete()
-		if err != nil {
-			t.Errorf("Error deleting table: %d", i)
-		}
+		assert.NoErrorf(t, err, "Error deleting table: %d", i)
 	}
 }
 
@@ -258,22 +219,16 @@ func TestCreateDeleteFlow(t *testing.T) {
 		Priority:  100,
 		InputPort: 1,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set vlan and install it
 	inPortFlow.SetVlan(1)
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// create an output
 	output, err := ofActor.Switch.OutputPort(1)
-	if err != nil {
-		t.Errorf("Error creating an output port. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating an output port")
 
 	// create mac flow
 	macAddr, _ := net.ParseMAC("02:01:01:01:01:01")
@@ -282,16 +237,12 @@ func TestCreateDeleteFlow(t *testing.T) {
 		VlanId:   1,
 		MacDa:    &macAddr,
 	})
-	if err != nil {
-		t.Errorf("Error creating mac flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating mac flow")
 
 	// Remove vlan and send out on a port
 	macFlow.PopVlan()
 	err = macFlow.Next(output)
-	if err != nil {
-		t.Errorf("Error installing the mac flow")
-	}
+	assert.Nil(t, err, "Error installing the mac flow")
 
 	// Install ip flow
 	ipAddr := net.ParseIP("10.10.10.10")
@@ -300,14 +251,10 @@ func TestCreateDeleteFlow(t *testing.T) {
 		Ethertype: 0x0800,
 		IpDa:      &ipAddr,
 	})
-	if err != nil {
-		t.Errorf("Error installing ip flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing ip flow")
 
 	err = ipFlow.Next(output)
-	if err != nil {
-		t.Errorf("Error installing the ip flow")
-	}
+	assert.Nil(t, err, "Error installing the ip flow")
 
 	// install tcp Flow
 	tcpFlag := uint16(0x2)
@@ -319,100 +266,65 @@ func TestCreateDeleteFlow(t *testing.T) {
 		TcpFlags:     &tcpFlag,
 		TcpFlagsMask: &tcpFlag,
 	})
-	if err != nil {
-		t.Errorf("Error creating tcp flow. Err: %v", err)
-	}
-
-	log.Infof("Creating tcp flow: %+v", tcpFlow)
+	assert.NoError(t, err, "Error creating tcp flow")
 	err = tcpFlow.Next(output)
-	if err != nil {
-		t.Errorf("Error installing the tcp flow")
-	}
+	assert.Nil(t, err, "Error installing the tcp flow")
 
 	// verify it got installed
-	flowList, err := ofctlFlowDump("ovsbr11")
-	if err != nil {
-		t.Errorf("Error getting flow entry")
-	}
+	flowList, err := ofctlFlowDump(ovsDriver.OvsBridgeName)
+	assert.Nil(t, err, "Error getting flow entry")
 
 	// Match inport flow
-	if !ofctlFlowMatch(flowList, 0, "priority=100,in_port=1",
-		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlFlowMatch(flowList, 0, "priority=100,in_port=1",
+		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1"), "in_port flow not found in OVS.")
 
 	// match ip flow
-	if !ofctlFlowMatch(flowList, 1, "priority=100,ip,nw_dst=10.10.10.10",
-		"output:1") {
-		t.Errorf("IP flow not found in OVS.")
-	}
+	assert.True(t, ofctlFlowMatch(flowList, 1, "priority=100,ip,nw_dst=10.10.10.10",
+		"output:1"), "IP flow not found in OVS.")
 
 	// match mac flow
-	if !ofctlFlowMatch(flowList, 1, "priority=100,dl_vlan=1,dl_dst=02:01:01:01:01:01",
-		"pop_vlan,output:1") {
-		t.Errorf("Mac flow not found in OVS.")
-		return
-	}
+	assert.True(t, ofctlFlowMatch(flowList, 1, "priority=100,dl_vlan=1,dl_dst=02:01:01:01:01:01",
+		"pop_vlan,output:1"), "Mac flow not found in OVS.")
 
 	// match tcp flow
-	if !ofctlFlowMatch(flowList, 1, "priority=100,tcp,tp_dst=80,tcp_flags=+syn",
-		"output:1") {
-		t.Errorf("IP flow not found in OVS.")
-	}
+	assert.True(t, ofctlFlowMatch(flowList, 1, "priority=100,tcp,tp_dst=80,tcp_flags=+syn",
+		"output:1"), "IP flow not found in OVS.")
 
 	// Delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Delete the flow
 	err = macFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the mac flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the mac flow")
 
 	// Delete the flow
 	err = ipFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the ip flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the ip flow")
 
 	// Delete the flow
 	err = tcpFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the tcp flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the tcp flow")
 
 	// Make sure they are really gone
-	flowList, err = ofctlFlowDump("ovsbr11")
-	if err != nil {
-		t.Errorf("Error getting flow entry")
-	}
+	flowList, err = ofctlFlowDump(ovsDriver.OvsBridgeName)
+	assert.NoError(t, err, "Error getting flow entry")
 
 	// Match inport flow and see if its still there..
-	if ofctlFlowMatch(flowList, 0, "priority=100,in_port=1",
-		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlFlowMatch(flowList, 0, "priority=100,in_port=1",
+		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1"), "in port flow still found in OVS after deleting it.")
 
 	// match ip flow
-	if ofctlFlowMatch(flowList, 1, "priority=100,ip,nw_dst=10.10.10.10",
-		"output:1") {
-		t.Errorf("IP flow not found in OVS.")
-	}
+	assert.False(t, ofctlFlowMatch(flowList, 1, "priority=100,ip,nw_dst=10.10.10.10",
+		"output:1"), "IP flow not found in OVS.")
 
 	// match mac flow
-	if ofctlFlowMatch(flowList, 1, "priority=100,dl_vlan=1,dl_dst=02:01:01:01:01:01",
-		"pop_vlan,output:1") {
-		t.Errorf("Mac flow not found in OVS.")
-	}
+	assert.False(t, ofctlFlowMatch(flowList, 1, "priority=100,dl_vlan=1,dl_dst=02:01:01:01:01:01",
+		"pop_vlan,output:1"), "Mac flow not found in OVS.")
 
 	// match tcp flow
-	if ofctlFlowMatch(flowList, 1, "priority=100,tcp,tp_dst=80,tcp_flags=+syn",
-		"output:1") {
-		t.Errorf("IP flow not found in OVS.")
-	}
+	assert.False(t, ofctlFlowMatch(flowList, 1, "priority=100,tcp,tp_dst=80,tcp_flags=+syn",
+		"output:1"), "IP flow not found in OVS.")
 }
 
 // TestSetUnsetDscp verifies dscp set/unset action
@@ -423,9 +335,7 @@ func TestSetUnsetDscp(t *testing.T) {
 		Ethertype: 0x0800,
 		IpDscp:    46,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set vlan and dscp
 	inPortFlow.SetDscp(23)
@@ -433,36 +343,26 @@ func TestSetUnsetDscp(t *testing.T) {
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify dscp action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,ip,in_port=1,nw_tos=184",
-		"set_field:23->ip_dscp,push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,ip,in_port=1,nw_tos=184",
+		"set_field:23->ip_dscp,push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1"), "in port flow not found in OVS.")
 
 	// unset dscp
 	inPortFlow.UnsetDscp()
 
 	// verify dscp action is gone
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,ip,in_port=1,nw_tos=184",
-		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,ip,in_port=1,nw_tos=184",
+		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,in_port=1",
-		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,in_port=1",
+		"push_vlan:0x8100,set_field:4097->vlan_vid,goto_table:1"), "in_port flow still found in OVS after deleting it.")
 }
 
 // TestMatchSetMetadata verifies metadata match & set metedata
@@ -474,36 +374,26 @@ func TestMatchSetMetadata(t *testing.T) {
 		Metadata:     &metadata,
 		MetadataMask: &metadata,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set Metadata
 	inPortFlow.SetMetadata(uint64(0x8800), uint64(0x8800))
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,metadata=0x1100/0x1100,in_port=1",
-		"write_metadata:0x8800/0x8800,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,metadata=0x1100/0x1100,in_port=1",
+		"write_metadata:0x8800/0x8800,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,metadata=0x1100/0x1100,in_port=1",
-		"write_metadata:0x8800/0x8800,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,metadata=0x1100/0x1100,in_port=1",
+		"write_metadata:0x8800/0x8800,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 // TestMatchSetTunnelId verifies tunnelId match & set
@@ -513,36 +403,26 @@ func TestMatchSetTunnelId(t *testing.T) {
 		InputPort: 1,
 		TunnelId:  10,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set tunnelId
 	inPortFlow.SetTunnelId(20)
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tun_id=0xa,in_port=1",
-		"set_field:0x14->tun_id,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tun_id=0xa,in_port=1",
+		"set_field:0x14->tun_id,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tun_id=0xa,in_port=1",
-		"set_field:0x14->tun_id,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tun_id=0xa,in_port=1",
+		"set_field:0x14->tun_id,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 // TestMatchSetIpFields verifies match & set for ip fields
@@ -560,9 +440,7 @@ func TestMatchSetIpFields(t *testing.T) {
 		IpDaMask:  &ipAddrMask,
 		IpProto:   IP_PROTO_TCP,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set ip src/dst
 	inPortFlow.SetIPField(net.ParseIP("20.2.1.1"), "Dst")
@@ -570,27 +448,19 @@ func TestMatchSetIpFields(t *testing.T) {
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp,in_port=1,nw_src=10.1.1.0/24,nw_dst=10.2.1.0/24",
-		"set_field:20.2.1.1->ip_dst,set_field:20.1.1.1->ip_src,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp,in_port=1,nw_src=10.1.1.0/24,nw_dst=10.2.1.0/24",
+		"set_field:20.2.1.1->ip_dst,set_field:20.1.1.1->ip_src,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp,in_port=1,nw_src=10.1.1.0/24,nw_dst=10.2.1.0/24",
-		"set_field:20.2.1.1->ip_dst,set_field:20.1.1.1->ip_src,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp,in_port=1,nw_src=10.1.1.0/24,nw_dst=10.2.1.0/24",
+		"set_field:20.2.1.1->ip_dst,set_field:20.1.1.1->ip_src,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 // TestMatchIpv6Fields verifies match ipv6 fields
@@ -609,36 +479,26 @@ func TestMatchIpv6Fields(t *testing.T) {
 		IpProto:   IP_PROTO_TCP,
 		IpDscp:    23,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set Metadata
 	inPortFlow.SetDscp(46)
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp6,in_port=1,ipv6_src=2016:616::/100,ipv6_dst=2016:617::/100,nw_tos=92",
-		"set_field:46->ip_dscp,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp6,in_port=1,ipv6_src=2016:616::/100,ipv6_dst=2016:617::/100,nw_tos=92",
+		"set_field:46->ip_dscp,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp6,in_port=1,ipv6_src=2016:616::/100,ipv6_dst=2016:617::/100,nw_tos=92",
-		"set_field:46->ip_dscp,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp6,in_port=1,ipv6_src=2016:616::/100,ipv6_dst=2016:617::/100,nw_tos=92",
+		"set_field:46->ip_dscp,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 // TestMatchSetTcpFields verifies match & set for tcp fields
@@ -656,9 +516,7 @@ func TestMatchSetTcpFields(t *testing.T) {
 		TcpFlags:     &tcpFlag,
 		TcpFlagsMask: &tcpFlag,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set TCP src/dst
 	inPortFlow.SetL4Field(5000, "TCPDst")
@@ -666,27 +524,19 @@ func TestMatchSetTcpFields(t *testing.T) {
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp,in_port=1,tp_src=0x8000/0xfff8,tp_dst=9000,tcp_flags=+syn+ack",
-		"set_field:5000->tcp_dst,set_field:4000->tcp_src,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp,in_port=1,tp_src=0x8000/0xfff8,tp_dst=9000,tcp_flags=+syn+ack",
+		"set_field:5000->tcp_dst,set_field:4000->tcp_src,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,tcp,in_port=1,tp_src=0x8000/0xfff8,tp_dst=9000,tcp_flags=+syn+ack",
-		"set_field:5000->tcp_dst,set_field:4000->tcp_src,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,tcp,in_port=1,tp_src=0x8000/0xfff8,tp_dst=9000,tcp_flags=+syn+ack",
+		"set_field:5000->tcp_dst,set_field:4000->tcp_src,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 // TestMatchSetUdpFields verifies match & set for udp fields
@@ -699,9 +549,7 @@ func TestMatchSetUdpFields(t *testing.T) {
 		SrcPort:   8000,
 		DstPort:   9000,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 
 	// Set TCP src/dst
 	inPortFlow.SetL4Field(5000, "UDPDst")
@@ -709,36 +557,28 @@ func TestMatchSetUdpFields(t *testing.T) {
 
 	// install it
 	err = inPortFlow.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,udp,in_port=1,tp_src=8000,tp_dst=9000",
-		"set_field:5000->udp_dst,set_field:4000->udp_src,goto_table:1") {
-		t.Errorf("in port flow not found in OVS.")
-	}
+	assert.True(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,udp,in_port=1,tp_src=8000,tp_dst=9000",
+		"set_field:5000->udp_dst,set_field:4000->udp_src,goto_table:1"), "in port flow not found in OVS.")
 
 	// delete the flow
 	err = inPortFlow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the inPort flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the inPort flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch("ovsbr11", 0, "priority=100,udp,in_port=1,tp_src=8000,tp_dst=9000",
-		"set_field:5000->udp_dst,set_field:4000->udp_src,goto_table:1") {
-		t.Errorf("in port flow still found in OVS after deleting it.")
-	}
+	assert.False(t, ofctlDumpFlowMatch(ovsDriver.OvsBridgeName, 0, "priority=100,udp,in_port=1,tp_src=8000,tp_dst=9000",
+		"set_field:5000->udp_dst,set_field:4000->udp_src,goto_table:1"), "in port flow still found in OVS after deleting it.")
 }
 
 func TestOFSwitch_DumpFlowStats(t *testing.T) {
-	ofActor2.Switch.EnableMonitor()
+	ofActor.Switch.EnableMonitor()
 	roundID := uint64(1001)
 	categoryID := uint64(1) << 16
 
 	tcpFlag := uint16(0x12)
-	flow1, err := ofActor2.inputTable.NewFlow(FlowMatch{
+	flow1, err := ofActor.inputTable.NewFlow(FlowMatch{
 		Priority:     100,
 		InputPort:    1,
 		Ethertype:    0x0800,
@@ -748,17 +588,14 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 		TcpFlags:     &tcpFlag,
 		TcpFlagsMask: &tcpFlag,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error creating inport flow")
 	flow1.SetL4Field(4000, "TCPSrc")
 	f1 := roundID | categoryID | uint64(1)<<24
 	flow1.CookieID = f1
-	if err := flow1.Next(ofActor.nextTable); err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	err = flow1.Next(ofActor.nextTable)
+	assert.NoError(t, err, "Error installing inport flow")
 
-	flow2, err := ofActor2.inputTable.NewFlow(FlowMatch{
+	flow2, err := ofActor.inputTable.NewFlow(FlowMatch{
 		Priority:  100,
 		InputPort: 1,
 		Ethertype: 0x0800,
@@ -766,9 +603,8 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 		SrcPort:   8000,
 		DstPort:   9000,
 	})
-	if err != nil {
-		t.Errorf("Error creating inport flow. Err: %v", err)
-	} // Set TCP src/dst
+	assert.NoError(t, err, "Error creating inport flow")
+	// Set TCP src/dst
 	flow2.SetL4Field(4000, "UDPSrc")
 	flow2.SetL4Field(5000, "UDPDst")
 	f2 := roundID | categoryID | uint64(2)<<24
@@ -776,33 +612,24 @@ func TestOFSwitch_DumpFlowStats(t *testing.T) {
 
 	// install it
 	err = flow2.Next(ofActor.nextTable)
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.Nil(t, err, "installing inport flow")
 
 	cookieID := roundID | categoryID
 	cookieMask := uint64(0xffffff)
-	stats, err := ofActor2.Switch.DumpFlowStats(cookieID, &cookieMask, nil, nil)
+	stats, err := ofActor.Switch.DumpFlowStats(cookieID, &cookieMask, nil, nil)
 	require.NoError(t, err)
-	if stats == nil {
-		t.Fatalf("Failed to dump flows")
-	}
-	if len(stats) != 2 {
-		t.Errorf("Flow count in dump result is incorrect, expecte: 2, actual: %d", len(stats))
-	}
+	require.NotNil(t, stats, "Failed to dump flows")
+	assert.Equalf(t, 2, len(stats), "Flow count in dump result is incorrect, expecte: 2, actual: %d", len(stats))
 	for _, stat := range stats {
 		fid := stat.Cookie
-		if fid != f1 && fid != f2 {
-			t.Errorf("Flow in dump result has incorrect cookieID: %d", fid)
-		}
+		assert.Truef(t, fid == f1 || fid == f2, "Flow in dump result has incorrect cookieID: %d", fid)
 	}
 }
 
 func TestMultiRangeOneReg(t *testing.T) {
-	ofApp := ofActor2
-	brName := ovsDriver2.OvsBridgeName
-	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
-	ofApp.Switch.EnableMonitor()
+	brName := ovsDriver.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofActor.inputTable.TableId, brName)
+	ofActor.Switch.EnableMonitor()
 
 	srcMac1, _ := net.ParseMAC("11:11:11:11:11:11")
 	srcIP1 := net.ParseIP("192.168.2.10")
@@ -818,7 +645,7 @@ func TestMultiRangeOneReg(t *testing.T) {
 	}
 
 	flow1 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -827,8 +654,8 @@ func TestMultiRangeOneReg(t *testing.T) {
 			NxRegs:    []*NXRegister{reg01, reg02},
 		},
 	}
-	flow1.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow1, brName, ofApp.inputTable.TableId,
+	flow1.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,reg0=0x284/0x3fc,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
 		"goto_table:1")
 
@@ -844,7 +671,7 @@ func TestMultiRangeOneReg(t *testing.T) {
 	}
 
 	flow2 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -853,8 +680,8 @@ func TestMultiRangeOneReg(t *testing.T) {
 			NxRegs:    []*NXRegister{reg11, reg12},
 		},
 	}
-	flow2.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow2, brName, ofApp.inputTable.TableId,
+	flow2.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow2, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,reg1=0xa1/0xff,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
 		"goto_table:1")
 
@@ -875,7 +702,7 @@ func TestMultiRangeOneReg(t *testing.T) {
 	}
 
 	flow3 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -884,8 +711,8 @@ func TestMultiRangeOneReg(t *testing.T) {
 			NxRegs:    []*NXRegister{reg21, reg23, reg22},
 		},
 	}
-	flow3.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow3, brName, ofApp.inputTable.TableId,
+	flow3.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow3, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,reg2=0x2e84/0x3ffc,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
 		"goto_table:1")
 
@@ -907,9 +734,8 @@ func TestReconnectOFSwitch(t *testing.T) {
 	defer func() {
 		// Wait for flow entries flush
 		time.Sleep(1 * time.Second)
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		err := ovsBr.DeleteBridge(brName)
+		assert.NoErrorf(t, err, "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 	assert.Equal(t, app.connectedCount, 1)
@@ -939,32 +765,23 @@ func prepareControllerAndSwitch(t *testing.T, app *OfActor, ctrl *Controller, br
 	return
 }
 
-func setOfTables(t *testing.T, ofApp *OfActor, brName string) {
-	if !ofApp.isSwitchConnected {
-		t.Fatalf("%s switch did not connect within 8s", brName)
-		return
-	}
-	ofApp.inputTable = ofApp.Switch.DefaultTable()
-	if ofApp.inputTable == nil {
-		t.Fatalf("Failed to get input table")
-		return
-	}
+func setOfTables(t *testing.T, ofActor2 *OfActor, brName string) {
+	require.Truef(t, ofActor2.isSwitchConnected, "%s switch did not connect within 8s", brName)
+	ofActor2.inputTable = ofActor2.Switch.DefaultTable()
+	require.NotNil(t, ofActor2.inputTable)
 	var err error
-	ofApp.nextTable, err = ofApp.Switch.NewTable(1)
-	if err != nil {
-		t.Fatalf("Error creating next table. Err: %v", err)
-		return
-	}
+	ofActor2.nextTable, err = ofActor2.Switch.NewTable(1)
+	require.Nil(t, err, "error creating next table")
 }
 
 func TestBundles(t *testing.T) {
-	brName := ovsDriver2.OvsBridgeName
+	brName := ovsDriver.OvsBridgeName
 	// Test transaction complete workflow
-	tx := ofActor2.Switch.NewTransaction(Atomic)
+	tx := ofActor.Switch.NewTransaction(Atomic)
 	err := tx.Begin()
 	require.NoError(t, err, "Failed to create transaction")
-	_, found := ofActor2.Switch.txChans[tx.ID]
-	assert.True(t, found, fmt.Sprintf("Failed to add transaction with ID %d from switch queues", tx.ID))
+	_, found := ofActor.Switch.txChans[tx.ID]
+	assert.Truef(t, found, "Failed to add transaction with ID %d from switch queues", tx.ID)
 	flow1 := createFlow(t, "22:11:11:11:11:11", "192.168.2.11")
 	flow2 := createFlow(t, "22:11:11:11:11:12", "192.168.2.12")
 	for _, f := range []*Flow{flow1, flow2} {
@@ -984,15 +801,14 @@ func TestBundles(t *testing.T) {
 		"priority=100,ip,dl_src=22:11:11:11:11:11,nw_src=192.168.2.11",
 		"priority=100,ip,dl_src=22:11:11:11:11:12,nw_src=192.168.2.12",
 	} {
-		if !ofctlDumpFlowMatch(brName, int(ofActor2.inputTable.TableId), matchStr, actionStr) {
-			t.Errorf("ovsDriver2: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
-		}
+		assert.Truef(t, ofctlDumpFlowMatch(brName, int(ofActor.inputTable.TableId), matchStr, actionStr),
+			"ovsDriver: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
 	}
-	_, found = ofActor2.Switch.txChans[tx.ID]
+	_, found = ofActor.Switch.txChans[tx.ID]
 	assert.False(t, found)
 
 	// Test transaction abort workflow
-	tx2 := ofActor2.Switch.NewTransaction(Atomic)
+	tx2 := ofActor.Switch.NewTransaction(Atomic)
 	err = tx2.Begin()
 	require.NoError(t, err, "Failed to create transaction")
 	flow3 := createFlow(t, "22:11:11:11:11:13", "192.168.2.13")
@@ -1007,14 +823,13 @@ func TestBundles(t *testing.T) {
 	err = tx2.Abort()
 	require.NoError(t, err, "Failed to abort transaction")
 	matchStr := "priority=100,ip,dl_src=22:11:11:11:11:13,nw_src=192.168.2.13"
-	if ofctlDumpFlowMatch(brName, int(ofActor2.inputTable.TableId), matchStr, actionStr) {
-		t.Errorf("ovsDriver2: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
-	}
-	_, found = ofActor2.Switch.txChans[tx2.ID]
+	assert.Falsef(t, ofctlDumpFlowMatch(brName, int(ofActor.inputTable.TableId), matchStr, actionStr),
+		"ovsDriver: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
+	_, found = ofActor.Switch.txChans[tx2.ID]
 	assert.False(t, found)
 
 	// Test failure in AddMessage
-	tx3 := ofActor2.Switch.NewTransaction(Atomic)
+	tx3 := ofActor.Switch.NewTransaction(Atomic)
 	err = tx3.Begin()
 	require.NoError(t, err, "Failed to create transaction")
 	flow4 := createFlow(t, "33:11:11:11:11:14", "192.168.3.14")
@@ -1030,25 +845,21 @@ func TestBundles(t *testing.T) {
 }
 
 func TestBundle2(t *testing.T) {
-	brName := ovsDriver2.OvsBridgeName
+	brName := ovsDriver.OvsBridgeName
 	// Test transaction complete workflow
-	tx := ofActor2.Switch.NewTransaction(Ordered)
+	tx := ofActor.Switch.NewTransaction(Ordered)
 	err := tx.Begin()
 	require.NoError(t, err, "Failed to create transaction")
-	_, found := ofActor2.Switch.txChans[tx.ID]
-	assert.True(t, found, fmt.Sprintf("Failed to add transaction with ID %d from switch queues", tx.ID))
+	_, found := ofActor.Switch.txChans[tx.ID]
+	assert.Truef(t, found, "Failed to add transaction with ID %d from switch queues", tx.ID)
 
 	groupId := uint32(2)
-	group1 := newGroup(groupId, GroupSelect, ofActor2.Switch)
+	group1 := newGroup(groupId, GroupSelect, ofActor.Switch)
 
 	natAction := openflow13.NewNXActionCTNAT()
-	if err := natAction.SetSNAT(); err != nil {
-		t.Errorf("Failed to set SNAT action: %v", err)
-	} else if err := natAction.SetRandom(); err != nil {
-		t.Errorf("Failed to set random action: %v", err)
-	} else {
-		natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
-	}
+	assert.Nil(t, natAction.SetSNAT(), "Failed to set SNAT action")
+	assert.Nil(t, natAction.SetRandom(), "Failed to set random action")
+	natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
 	ctAction := openflow13.NewNXActionConnTrack()
 	ctAction.Commit()
 	ctAction.AddAction(natAction)
@@ -1059,7 +870,7 @@ func TestBundle2(t *testing.T) {
 	groupMod := group1.GetBundleMessage(openflow13.OFPGC_ADD)
 
 	inPort8 := uint32(11)
-	flow1, err := ofActor2.inputTable.NewFlow(FlowMatch{
+	flow1, err := ofActor.inputTable.NewFlow(FlowMatch{
 		Priority:  100,
 		Ethertype: 0x0800,
 		InputPort: inPort8,
@@ -1080,59 +891,53 @@ func TestBundle2(t *testing.T) {
 	assert.True(t, tx.closed)
 	err = tx.Commit()
 	require.NoError(t, err, "Failed to commit transaction")
-	_, found = ofActor2.Switch.txChans[tx.ID]
+	_, found = ofActor.Switch.txChans[tx.ID]
 	assert.False(t, found)
 
 	verifyGroup(t, brName, group1, "select", "bucket=weight:50,actions=ct(commit,nat(src=10.0.0.240,random))", true)
 	matchStr := "priority=100,ip,in_port=11"
 	actionStr := "group:2"
-	if !ofctlDumpFlowMatch(brName, int(ofActor2.inputTable.TableId), matchStr, actionStr) {
-		t.Errorf("br: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
-	}
-
+	assert.Truef(t, ofctlDumpFlowMatch(brName, int(ofActor.inputTable.TableId), matchStr, actionStr),
+		"br: %s, target flow not found on OVS, match: %s, actions: %s", brName, matchStr, actionStr)
 }
 
 func createFlow(t *testing.T, mac, ip string) *Flow {
 	srcMac1, _ := net.ParseMAC(mac)
 	srcIP1 := net.ParseIP(ip)
-	flow1, err := ofActor2.inputTable.NewFlow(
+	flow1, err := ofActor.inputTable.NewFlow(
 		FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
 			MacSa:     &srcMac1,
 			IpSa:      &srcIP1,
 		})
-	if err != nil {
-		t.Fatalf("Failed to create flow")
-	}
-	flow1.NextElem = ofActor2.nextTable
+	require.Nil(t, err, "Failed to create flow")
+	flow1.NextElem = ofActor.nextTable
 	return flow1
 }
 
 // Test Nicira extensions for match field and actions
 func TestNXExtension(t *testing.T) {
-	testNXExtensionsWithOFApplication(&ofActor, ovsDriver, t)
-	testNXExtensionsWithOFApplication(ofActor2, ovsDriver2, t)
+	testNXExtensionsWithOFApplication(ofActor, ovsDriver, t)
 }
 
 func TestLearn(t *testing.T) {
-	testNXExtensionLearn(ofActor2, ovsDriver2, t)
+	testNXExtensionLearn(ofActor, ovsDriver, t)
 }
 
 func TestNotes(t *testing.T) {
-	testNXExtensionNote(ofActor2, ovsDriver2, t)
+	testNXExtensionNote(ofActor, ovsDriver, t)
 }
 
 func TestNewFlowActionAPIs(t *testing.T) {
-	ofApp := ofActor2
-	brName := ovsDriver2.OvsBridgeName
-	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
-	ofApp.Switch.EnableMonitor()
+	brName := ovsDriver.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofActor.inputTable.TableId, brName)
+	ofActor.Switch.EnableMonitor()
 
 	srcMac1, _ := net.ParseMAC("11:11:11:11:11:11")
 	srcIP1 := net.ParseIP("192.168.2.10")
 	flow1 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1145,15 +950,15 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	loadReg, err := NewNXLoadAction("OXM_OF_ETH_SRC", newSrcMac, rng1)
 	require.NoError(t, err)
 	flow1.ApplyActions([]OFAction{loadReg})
-	flow1.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow1, brName, ofApp.inputTable.TableId,
+	flow1.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,dl_src=11:11:11:11:11:11,nw_src=192.168.2.10",
 		"load:0x111111222222->NXM_OF_ETH_SRC[],goto_table:1")
 
 	// Test action: move src mac to dst mac
 	srcMac2, _ := net.ParseMAC("11:11:11:11:11:22")
 	flow2 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1165,29 +970,29 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	act, err := NewNXMoveAction("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2)
 	require.NoError(t, err, "Failed to move data from NXM_OF_ETH_SRC to NXM_OF_ETH_DST")
 	flow2.ApplyActions([]OFAction{act})
-	flow2.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow2, brName, ofApp.inputTable.TableId,
+	flow2.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow2, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,dl_src=11:11:11:11:11:22,nw_src=192.168.2.10",
 		"move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],goto_table:1")
 
 	// Test action: output in_port
 	inPort1 := uint32(103)
 	flow3 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			InputPort: inPort1,
 		},
 	}
 	flow3.ApplyActions([]OFAction{NewOutputInPort()})
-	verifyNewFlowInstallAndDelete(t, flow3, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow3, brName, ofActor.inputTable.TableId,
 		"priority=100,in_port=103",
 		"IN_PORT")
 
 	//Test action: output to register
 	inPort2 := uint32(104)
 	flow4 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			InputPort: inPort2,
@@ -1195,14 +1000,14 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	}
 	nxRegOutput, _ := NewNXOutput("NXM_NX_REG1", 5, 10)
 	flow4.ApplyActions([]OFAction{nxRegOutput})
-	verifyNewFlowInstallAndDelete(t, flow4, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow4, brName, ofActor.inputTable.TableId,
 		"priority=100,in_port=104",
 		"output:NXM_NX_REG1[5..10]")
 
 	// Test action: conjunction
 	inPort3 := uint32(105)
 	flow5 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			InputPort: inPort3,
@@ -1221,11 +1026,10 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	require.NoError(t, err)
 	matchStr := "priority=100,in_port=105"
 	actionStr := "conjunction(100,2/5),conjunction(101,2/3)"
-	tableID := int(ofApp.inputTable.TableId)
+	tableID := int(ofActor.inputTable.TableId)
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
 	flow5.MonitorRealizeStatus()
 	time.Sleep(1 * time.Second)
 	log.Info("Flow realize status is ", flow5.IsRealized())
@@ -1234,21 +1038,19 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	require.NoError(t, err)
 	actionStr = "conjunction(100,2/5)"
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
 	// delete the flow
 	err = flow5.Send(openflow13.FC_DELETE_STRICT)
-	require.NoError(t, err, "Error deleting the flow")
+	require.Nil(t, err, "Error deleting the flow")
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("br: %s, target flow still found in OVS after deleting it", brName)
-	}
+	assert.Falsef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"br: %s, target flow still found in OVS after deleting it", brName)
 
 	// Test action: set tun dst addr
 	inPort4 := uint32(106)
 	flow6 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			InputPort: inPort4,
@@ -1257,8 +1059,8 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	tunDstAddr := net.ParseIP("192.168.2.100")
 	flow6.ApplyActions([]OFAction{
 		&SetTunnelDstAction{tunDstAddr}})
-	flow6.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow6, brName, ofApp.inputTable.TableId,
+	flow6.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow6, brName, ofActor.inputTable.TableId,
 		"priority=100,in_port=106",
 		"set_field:192.168.2.100->tun_dst,goto_table:1")
 
@@ -1267,7 +1069,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	// output:IN_PORT
 	inPort5 := uint32(107)
 	flow7 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0806,
@@ -1293,14 +1095,14 @@ func TestNewFlowActionAPIs(t *testing.T) {
 		&SetARPSpaAction{sIP},
 		NewOutputInPort(),
 	})
-	verifyNewFlowInstallAndDelete(t, flow7, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow7, brName, ofActor.inputTable.TableId,
 		"priority=100,arp,in_port=107,arp_op=1",
 		"move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],move:NXM_NX_ARP_SHA[]->NXM_NX_ARP_THA[],move:NXM_OF_ARP_SPA[]->NXM_OF_ARP_TPA[],set_field:2->arp_op,set_field:11:11:11:11:11:22->eth_src,set_field:11:11:11:11:11:22->arp_sha,set_field:192.168.1.100->arp_spa,IN_PORT")
 
 	// Test action: ct(commit, table=1, zone=0xff01,exec(load:0xf009->NXM_NX_CT_MARK[]))
 	inPort6 := uint32(108)
 	flow8 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1317,16 +1119,16 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	table2 := uint8(2)
 	flow8.ApplyActions([]OFAction{
 		conntrack,
-		NewResubmit(nil, &ofApp.nextTable.TableId),
+		NewResubmit(nil, &ofActor.nextTable.TableId),
 		NewResubmit(nil, &table2),
 	})
-	verifyNewFlowInstallAndDelete(t, flow8, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow8, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,in_port=108",
 		"ct(commit,table=1,zone=65281,exec(load:0xf009->NXM_NX_CT_MARK[])),resubmit(,1),resubmit(,2)")
 
 	// Test action: ct(table=1,zone=0xff01,nat)
 	flow80 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1336,14 +1138,14 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	natAction0 := openflow13.NewNXActionCTNAT()
 	conntrack2 := NewNXConnTrackAction(false, false, &ctTable, &ctZone, natAction0)
 	flow80.ApplyActions([]OFAction{conntrack2})
-	flow80.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow80, brName, ofApp.inputTable.TableId,
+	flow80.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow80, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,in_port=108",
 		"ct(table=1,zone=65281,nat),goto_table:1")
 	// Test action: dec_ttl
 	inPort7 := uint32(109)
 	flow9 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1351,7 +1153,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 		},
 	}
 	flow9.ApplyActions([]OFAction{&DecTTLAction{}})
-	verifyNewFlowInstallAndDelete(t, flow9, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow9, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,in_port=109",
 		"dec_ttl")
 
@@ -1361,7 +1163,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	ctStates.SetNew()
 	ctStates.UnsetTrk()
 	flow10 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1373,7 +1175,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	ctMoveAction := openflow13.NewNXActionRegMove(48, 0, 0, ctMoveSrc, ctMoveDst)
 	conntrack3 := NewNXConnTrackAction(true, false, nil, nil, ctMoveAction, ctLoadAction)
 	flow10.ApplyActions([]OFAction{conntrack3})
-	verifyNewFlowInstallAndDelete(t, flow10, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow10, brName, ofActor.inputTable.TableId,
 		"priority=100,ct_state=+new-trk,ip",
 		"ct(commit,exec(move:NXM_OF_ETH_SRC[]->NXM_NX_CT_LABEL[0..47],load:0xf009->NXM_NX_CT_MARK[]))")
 
@@ -1385,7 +1187,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 	}
 	var regs = []*NXRegister{reg1}
 	flow11 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1393,39 +1195,33 @@ func TestNewFlowActionAPIs(t *testing.T) {
 		},
 	}
 	conntrack4 := NewNXConnTrackAction(true, false, nil, nil)
-	flow11.ApplyActions([]OFAction{conntrack4, NewResubmit(nil, &ofApp.nextTable.TableId)})
-	verifyNewFlowInstallAndDelete(t, flow11, brName, ofApp.inputTable.TableId,
+	flow11.ApplyActions([]OFAction{conntrack4, NewResubmit(nil, &ofActor.nextTable.TableId)})
+	verifyNewFlowInstallAndDelete(t, flow11, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,reg2=0x12/0xffff",
 		"ct(commit),resubmit(,1)")
 
 	// Test group
 	groupId := uint32(11)
-	group1 := newGroup(groupId, GroupSelect, ofApp.Switch)
+	group1 := newGroup(groupId, GroupSelect, ofActor.Switch)
 
 	natAction := openflow13.NewNXActionCTNAT()
-	if err := natAction.SetSNAT(); err != nil {
-		t.Errorf("Failed to set SNAT action: %v", err)
-	} else if err := natAction.SetRandom(); err != nil {
-		t.Errorf("Failed to set random action: %v", err)
-	} else {
-		natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
-	}
+	assert.Nil(t, natAction.SetSNAT(), "Failed to set SNAT action")
+	assert.Nil(t, natAction.SetRandom(), "Failed to set random action")
+	natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
 	ctAction := NewNXConnTrackAction(true, false, nil, nil, natAction)
 	bkt := openflow13.NewBucket()
 	bkt.Weight = 50
 	bkt.AddAction(ctAction.GetActionMessage())
 	group1.AddBuckets(bkt)
 	err = group1.Install()
-	if err != nil {
-		t.Errorf("Failed to install group entry: %v", err)
-	}
+	assert.NoError(t, err, "Failed to install group entry")
 
 	verifyGroup(t, brName, group1, "select", "bucket=weight:50,actions=ct(commit,nat(src=10.0.0.240,random))", true)
 
 	// Install flow and refer to group
 	inPort8 := uint32(110)
 	flow13 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1433,7 +1229,7 @@ func TestNewFlowActionAPIs(t *testing.T) {
 		},
 	}
 	flow13.ApplyActions([]OFAction{group1})
-	verifyFlowInstallAndDelete(t, flow13, group1, brName, ofApp.inputTable.TableId,
+	verifyFlowInstallAndDelete(t, flow13, group1, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,in_port=110",
 		"group:1")
 	group1.Delete()
@@ -1441,22 +1237,21 @@ func TestNewFlowActionAPIs(t *testing.T) {
 }
 
 func TestSetTunnelMetadata(t *testing.T) {
-	ofApp := ofActor2
-	brName := ovsDriver2.OvsBridgeName
-	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
-	ofApp.Switch.EnableMonitor()
+	brName := ovsDriver.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofActor.inputTable.TableId, brName)
+	ofActor.Switch.EnableMonitor()
 
 	tlvMap := &openflow13.TLVTableMap{OptClass: 0xff01, OptType: 0, OptLength: 4, Index: 0}
-	err := ofApp.Switch.AddTunnelTLVMap(tlvMap.OptClass, tlvMap.OptType, tlvMap.OptLength, tlvMap.Index)
+	err := ofActor.Switch.AddTunnelTLVMap(tlvMap.OptClass, tlvMap.OptType, tlvMap.OptLength, tlvMap.Index)
 	require.NoError(t, err)
 
 	// Test "AddTunnelTLVMap" is idempotent
-	err = ofApp.Switch.AddTunnelTLVMap(tlvMap.OptClass, tlvMap.OptType, tlvMap.OptLength, tlvMap.Index)
+	err = ofActor.Switch.AddTunnelTLVMap(tlvMap.OptClass, tlvMap.OptType, tlvMap.OptLength, tlvMap.Index)
 	require.NoError(t, err)
 
 	inPort9 := uint32(111)
 	flow14 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			Ethertype: 0x0800,
@@ -1467,7 +1262,7 @@ func TestSetTunnelMetadata(t *testing.T) {
 	loadReg2, err := NewNXLoadAction("NXM_NX_TUN_METADATA0", uint64(0x12), rng14)
 	require.NoError(t, err)
 	flow14.ApplyActions([]OFAction{loadReg2})
-	verifyNewFlowInstallAndDelete(t, flow14, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow14, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,in_port=111",
 		"set_field:0x1200/0xff00->tun_metadata0")
 
@@ -1475,7 +1270,7 @@ func TestSetTunnelMetadata(t *testing.T) {
 	rng15 := openflow13.NewNXRange(8, 23)
 
 	flow15 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  100,
 			InputPort: inPort10,
@@ -1491,15 +1286,15 @@ func TestSetTunnelMetadata(t *testing.T) {
 	rng16 := openflow13.NewNXRange(28, 31)
 	moveAction, err := NewNXMoveAction("NXM_NX_TUN_METADATA0", "NXM_NX_REG0", rng16, rng16)
 	require.NoError(t, err)
-	tlvMapStatus := ofApp.Switch.GetTLVMapTableStatus()
+	tlvMapStatus := ofActor.Switch.GetTLVMapTableStatus()
 	ResetFieldLength(moveAction.SrcField, tlvMapStatus)
 	flow15.ApplyActions([]OFAction{moveAction})
-	flow15.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow15, brName, ofApp.inputTable.TableId,
+	flow15.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow15, brName, ofActor.inputTable.TableId,
 		"priority=100,ip,tun_metadata0=0x3400/0xffff00,in_port=112",
 		"move:NXM_NX_TUN_METADATA0[28..31]->NXM_NX_REG0[28..31],goto_table:1")
 
-	err = ofApp.Switch.DeleteTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
+	err = ofActor.Switch.DeleteTunnelTLVMap([]*openflow13.TLVTableMap{tlvMap})
 	require.NoError(t, err)
 }
 
@@ -1516,9 +1311,7 @@ func TestModPort(t *testing.T) {
 	brName := "br4modPort"
 	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
@@ -1545,9 +1338,7 @@ func TestCtMatch(t *testing.T) {
 	brName := "br4ctMatch"
 	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
@@ -1620,9 +1411,7 @@ func TestIPv6Flows(t *testing.T) {
 	brName := "br4IPv6"
 	ovsBr := prepareControllerAndSwitch(t, app, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
@@ -1826,15 +1615,11 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		MacSa:     &srcMac1,
 		IpSa:      &srcIP1,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow1)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow1)
 	newSrcMac := uint64(0x111111222222)
 	rng1 := openflow13.NewNXRange(0, 47)
 	err = flow1.LoadReg("OXM_OF_ETH_SRC", newSrcMac, rng1)
-	if err != nil {
-		t.Errorf("Failed to load data into field OXM_OF_ETH_SRC: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to load data into field OXM_OF_ETH_SRC")
 	verifyFlowInstallAndDelete(t, flow1, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,dl_src=11:11:11:11:11:11,nw_src=192.168.1.10",
 		"load:0x111111222222->NXM_OF_ETH_SRC[],goto_table:1")
@@ -1847,14 +1632,10 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		MacSa:     &srcMac2,
 		IpSa:      &srcIP1,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow2)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow2)
 	rng2 := openflow13.NewNXRange(0, 47)
 	err = flow2.MoveRegs("NXM_OF_ETH_SRC", "NXM_OF_ETH_DST", rng2, rng2)
-	if err != nil {
-		t.Errorf("Failed to move data from NXM_OF_ETH_SRC to NXM_OF_ETH_DST: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to move data from NXM_OF_ETH_SRC to NXM_OF_ETH_DST")
 	verifyFlowInstallAndDelete(t, flow2, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,dl_src=11:11:11:11:11:22,nw_src=192.168.1.10",
 		"move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],goto_table:1")
@@ -1865,9 +1646,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Priority:  100,
 		InputPort: inPort1,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow3)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow3)
 	verifyFlowInstallAndDelete(t, flow3, NewOutputInPort(), brName, ofApp.inputTable.TableId,
 		"priority=100,in_port=3",
 		"IN_PORT")
@@ -1878,9 +1657,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Priority:  100,
 		InputPort: inPort2,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow4)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow4)
 	flow4.OutputReg("NXM_NX_REG1", 5, 10)
 	verifyFlowInstallAndDelete(t, flow4, NewEmptyElem(), brName, ofApp.inputTable.TableId,
 		"priority=100,in_port=4",
@@ -1892,24 +1669,19 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Priority:  100,
 		InputPort: inPort3,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow5)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow5)
 
 	_ = flow5.AddConjunction(uint32(100), uint8(2), uint8(5))
 	_ = flow5.AddConjunction(uint32(101), uint8(2), uint8(3))
 	// install it
 	err = flow5.Next(NewEmptyElem())
-	if err != nil {
-		t.Errorf("Error installing inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing inport flow")
 	matchStr := "priority=100,in_port=5"
 	actionStr := "conjunction(100,2/5),conjunction(101,2/3)"
 	tableID := int(ofApp.inputTable.TableId)
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
 	flow5.MonitorRealizeStatus()
 	time.Sleep(1 * time.Second)
 	log.Info("Flow realize status is ", flow5.IsRealized())
@@ -1917,25 +1689,19 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 	_ = flow5.DelConjunction(uint32(101))
 	actionStr = "conjunction(100,2/5)"
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"conjunction flow match: %s, actions: %s not found in OVS", matchStr, actionStr)
 
 	err = flow5.DelConjunction(uint32(100))
-	if err != EmptyFlowActionError {
-		t.Errorf("Failed to find no action left in flow actions")
-	}
+	assert.Equal(t, EmptyFlowActionError, err, "Failed to find no action left in flow actions")
 
 	// delete the flow
 	err = flow5.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr) {
-		t.Errorf("br: %s, target flow still found in OVS after deleting it", brName)
-	}
+	assert.Falsef(t, ofctlDumpFlowMatch(brName, tableID, matchStr, actionStr),
+		"br: %s, target flow still found in OVS after deleting it", brName)
 
 	// Test action: set tun dst addr
 	inPort4 := uint32(6)
@@ -1943,9 +1709,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Priority:  100,
 		InputPort: inPort4,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow6)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow6)
 	tunDstAddr := net.ParseIP("192.168.1.100")
 	err = flow6.SetIPField(tunDstAddr, "TunDst")
 	require.NoError(t, err)
@@ -1963,9 +1727,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		InputPort: inPort5,
 		ArpOper:   1,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow7)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow7)
 	rng4 := openflow13.NewNXRange(0, 31)
 	sMAC, _ := net.ParseMAC("11:11:11:11:11:22")
 	sIP := net.ParseIP("192.168.1.100")
@@ -1987,9 +1749,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Ethertype: 0x0800,
 		InputPort: inPort6,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow8)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow8)
 	ctTable := uint8(1)
 	ctZone := uint16(0xff01)
 	dstField, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_MARK", false)
@@ -1997,9 +1757,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 
 	ctLoadAction := openflow13.NewNXActionRegLoad(rng4.ToOfsBits(), dstField, loadData)
 	err = flow8.ConnTrack(true, false, &ctTable, &ctZone, ctLoadAction)
-	if err != nil {
-		t.Errorf("Failed to apply ct action: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to apply ct action")
 	verifyFlowInstallAndDelete(t, flow8, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,in_port=8",
 		"ct(commit,table=1,zone=65281,exec(load:0xf009->NXM_NX_CT_MARK[])),goto_table:1")
@@ -2010,14 +1768,10 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Ethertype: 0x0800,
 		InputPort: inPort6,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow80)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow80)
 	natAction0 := openflow13.NewNXActionCTNAT()
 	err = flow80.ConnTrack(false, false, &ctTable, &ctZone, natAction0)
-	if err != nil {
-		t.Errorf("Failed to apply ct action: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to apply ct action")
 	verifyFlowInstallAndDelete(t, flow80, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,in_port=8",
 		"ct(table=1,zone=65281,nat),goto_table:1")
@@ -2028,13 +1782,9 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Ethertype: 0x0800,
 		InputPort: inPort7,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow9)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow9)
 	err = flow9.DecTTL()
-	if err != nil {
-		t.Errorf("Failed to apply dec_ttl action: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to apply dec_ttl action")
 	verifyFlowInstallAndDelete(t, flow9, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ip,in_port=9",
 		"dec_ttl,goto_table:1")
@@ -2049,25 +1799,19 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 		Ethertype: 0x0800,
 		CtStates:  ctStates,
 	})
-	if err != nil {
-		t.Fatalf("Failed to generate flow: %+v", flow10)
-	}
+	require.Nilf(t, err, "Failed to generate flow: %+v", flow10)
 
 	ctMoveSrc, _ := openflow13.FindFieldHeaderByName("NXM_OF_ETH_SRC", false)
 	ctMoveDst, _ := openflow13.FindFieldHeaderByName("NXM_NX_CT_LABEL", false)
 	ctMoveAction := openflow13.NewNXActionRegMove(48, 0, 0, ctMoveSrc, ctMoveDst)
 	err = flow10.ConnTrack(true, false, nil, nil, ctMoveAction, ctLoadAction)
-	if err != nil {
-		t.Errorf("Failed to apply dec_ttl action: %+v", err)
-	}
+	assert.NoError(t, err, "Failed to apply dec_ttl action")
 	verifyFlowInstallAndDelete(t, flow10, ofApp.nextTable, brName, ofApp.inputTable.TableId,
 		"priority=100,ct_state=+new-trk,ip",
 		"ct(commit,exec(move:NXM_OF_ETH_SRC[]->NXM_NX_CT_LABEL[0..47],load:0xf009->NXM_NX_CT_MARK[])),goto_table:1")
 
 	status := ofApp.Switch.CheckStatus(1)
-	if !status {
-		t.Errorf("Failed to check Switch status.")
-	}
+	assert.True(t, status, "Failed to check Switch status.")
 	//Test match: reg1=0x12/0xffff
 	reg1 := &NXRegister{
 		ID:    1,
@@ -2106,13 +1850,9 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 	group1 := newGroup(groupId, GroupSelect, ofApp.Switch)
 
 	natAction := openflow13.NewNXActionCTNAT()
-	if err := natAction.SetSNAT(); err != nil {
-		t.Errorf("Failed to set SNAT action: %v", err)
-	} else if err := natAction.SetRandom(); err != nil {
-		t.Errorf("Failed to set random action: %v", err)
-	} else {
-		natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
-	}
+	assert.Nil(t, natAction.SetSNAT(), "Failed to set SNAT action")
+	assert.Nil(t, natAction.SetRandom(), "Failed to set random action")
+	natAction.SetRangeIPv4Min(net.ParseIP("10.0.0.240"))
 	ctAction := openflow13.NewNXActionConnTrack()
 	ctAction.Commit()
 	ctAction.AddAction(natAction)
@@ -2121,10 +1861,7 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 	bkt.AddAction(ctAction)
 	group1.AddBuckets(bkt)
 	err = group1.Install()
-	if err != nil {
-		t.Errorf("Failed to install group entry: %v", err)
-	}
-
+	assert.NoError(t, err, "Failed to install group entry")
 	verifyGroup(t, brName, group1, "select", "bucket=weight:50,actions=ct(commit,nat(src=10.0.0.240,random))", true)
 
 	// Install flow and refer to group
@@ -2144,63 +1881,41 @@ func testNXExtensionsWithOFApplication(ofApp *OfActor, ovsBr *OvsDriver, t *test
 
 func verifyNewFlowInstallAndDelete(t *testing.T, flow *Flow, br string, tableID uint8, matchStr string, actionStr string) {
 	err := flow.Send(openflow13.FC_ADD)
-	if err != nil {
-		t.Errorf("Error installing flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error installing flow")
 	flow.MonitorRealizeStatus()
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr) {
-		t.Errorf("br: %s, target flow not found on OVS, match: %s, actions: %s", br, matchStr, actionStr)
-	}
-	if !flow.IsRealized() {
-		t.Errorf("Failed to realize flow status, match: %s, actions: %s", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr), "br: %s, target flow not found on OVS, match: %s, actions: %s", br, matchStr, actionStr)
+	assert.Truef(t, flow.IsRealized(), "Failed to realize flow status, match: %s, actions: %s", matchStr, actionStr)
 
 	// delete the flow
 	err = flow.Send(openflow13.FC_DELETE_STRICT)
-	if err != nil {
-		t.Errorf("Error deleting the flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr) {
-		t.Errorf("br: %s, target flow still found on OVS after deleting it: match: %s, actions: %s", br, matchStr, actionStr)
-	}
+	assert.Falsef(t, ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr), "br: %s, target flow still found on OVS after deleting it: match: %s, actions: %s", br, matchStr, actionStr)
 }
 
 func verifyFlowInstallAndDelete(t *testing.T, flow *Flow, nextElem FgraphElem, br string, tableID uint8, matchStr string, actionStr string) {
 	// install it
 	err := flow.Next(nextElem)
-	if err != nil {
-		t.Errorf("Error inport flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error install flow")
 	flow.MonitorRealizeStatus()
 	// verify metadata action exists
-	if !ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr) {
-		t.Errorf("br: %s, target flow not found on OVS, match: %s, actions: %s", br, matchStr, actionStr)
-	}
-	if !flow.IsRealized() {
-		t.Errorf("Failed to realize flow status, match: %s, actions: %s", matchStr, actionStr)
-	}
+	assert.Truef(t, ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr), "br: %s, target flow not found on OVS, match: %s, actions: %s", br, matchStr, actionStr)
+	assert.Truef(t, flow.IsRealized(), "Failed to realize flow status, match: %s, actions: %s", matchStr, actionStr)
 
 	// delete the flow
 	err = flow.Delete()
-	if err != nil {
-		t.Errorf("Error deleting the flow. Err: %v", err)
-	}
+	assert.NoError(t, err, "Error deleting the flow")
 
 	// Make sure they are really gone
-	if ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr) {
-		t.Errorf("br: %s, target flow still found on OVS after deleting it: match: %s, actions: %s", br, matchStr, actionStr)
-	}
+	assert.Falsef(t, ofctlDumpFlowMatch(br, int(tableID), matchStr, actionStr), "br: %s, target flow still found on OVS after deleting it: match: %s, actions: %s", br, matchStr, actionStr)
 }
 
 func verifyGroup(t *testing.T, br string, group *Group, groupType string, buckets string, expectExists bool) {
 	// dump groups
 	groupList, err := ofctlGroupDump(br)
-	if err != nil {
-		log.Errorf("Error dumping flows: Err %v", err)
-	}
+	assert.NoError(t, err, "Error dumping flows")
 	groupStr := fmt.Sprintf("group_id=%d,type=%s,%s", group.ID, groupType, buckets)
 	found := false
 	for _, groupEntry := range groupList {
@@ -2210,16 +1925,14 @@ func verifyGroup(t *testing.T, br string, group *Group, groupType string, bucket
 			break
 		}
 	}
-	if found != expectExists {
-		t.Errorf("br %s, failed to find group entry %s", br, groupStr)
-	}
+	assert.Equalf(t, expectExists, found, "br %s, failed to find group entry %s", br, groupStr)
 }
 
 // dump the groups and parse the Output
 func ofctlGroupDump(brName string) ([]string, error) {
 	groupDump, err := runOfctlCmd("dump-groups", brName)
 	if err != nil {
-		log.Errorf("Error running dump-groups on %s. Err: %v", brName, err)
+		log.Errorf("Error running dump-groups on %s: %v", brName, err)
 		return nil, err
 	}
 
@@ -2234,16 +1947,15 @@ func ofctlGroupDump(brName string) ([]string, error) {
 
 // Test flows using write_actions
 func TestWriteactionsFlows(t *testing.T) {
-	ofApp := ofActor2
-	brName := ovsDriver2.OvsBridgeName
-	log.Infof("Enable monitor flows on table %d in bridge %s", ofApp.inputTable.TableId, brName)
-	ofApp.Switch.EnableMonitor()
+	brName := ovsDriver.OvsBridgeName
+	log.Infof("Enable monitor flows on table %d in bridge %s", ofActor.inputTable.TableId, brName)
+	ofActor.Switch.EnableMonitor()
 
 	// Test dnatTable flow using write_actions
 	ipDa1 := net.ParseIP("10.96.0.0")
 	ipAddrMask1 := net.ParseIP("255.240.0.0")
 	flow1 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  200,
 			Ethertype: 0x0800,
@@ -2258,8 +1970,8 @@ func TestWriteactionsFlows(t *testing.T) {
 	flow1.ApplyActions([]OFAction{loadReg1})
 	outputAction1 := NewOutputPort(uint32(1))
 	flow1.WriteActions([]OFAction{outputAction1})
-	flow1.Goto(ofApp.nextTable.TableId)
-	verifyNewFlowInstallAndDelete(t, flow1, brName, ofApp.inputTable.TableId,
+	flow1.Goto(ofActor.nextTable.TableId)
+	verifyNewFlowInstallAndDelete(t, flow1, brName, ofActor.inputTable.TableId,
 		"priority=200,ip,nw_dst=10.96.0.0/12",
 		"load:0x1->NXM_NX_REG0[16],write_actions(output:1),goto_table:1")
 
@@ -2267,7 +1979,7 @@ func TestWriteactionsFlows(t *testing.T) {
 	ipDa2 := net.ParseIP("172.30.0.0")
 	ipAddrMask2 := net.ParseIP("255.255.255.0")
 	flow2 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:  200,
 			Ethertype: 0x0800,
@@ -2293,9 +2005,9 @@ func TestWriteactionsFlows(t *testing.T) {
 
 	outputAction2 := NewOutputPort(uint32(1))
 	flow2.WriteActions([]OFAction{outputAction2})
-	flow2.Goto(ofApp.nextTable.TableId)
+	flow2.Goto(ofActor.nextTable.TableId)
 	require.NoError(t, err)
-	verifyNewFlowInstallAndDelete(t, flow2, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow2, brName, ofActor.inputTable.TableId,
 		"priority=200,ip,nw_dst=172.30.0.0/24",
 		"dec_ttl,set_field:11:11:11:11:11:11->eth_src,set_field:aa:bb:cc:dd:ee:ff->eth_dst,load:0x1->NXM_NX_REG0[16],set_field:192.168.20.1->tun_dst,write_actions(output:1),goto_table:1")
 
@@ -2303,7 +2015,7 @@ func TestWriteactionsFlows(t *testing.T) {
 	macDa3, _ := net.ParseMAC("11:11:11:11:11:11")
 
 	flow3 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority: 200,
 			MacDa:    &macDa3,
@@ -2317,16 +2029,16 @@ func TestWriteactionsFlows(t *testing.T) {
 
 	outputAction3 := NewOutputPort(uint32(1))
 	flow3.WriteActions([]OFAction{outputAction3})
-	flow3.Goto(ofApp.nextTable.TableId)
+	flow3.Goto(ofActor.nextTable.TableId)
 	require.NoError(t, err)
-	verifyNewFlowInstallAndDelete(t, flow3, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow3, brName, ofActor.inputTable.TableId,
 		"priority=200,dl_dst=11:11:11:11:11:11",
 		"load:0x1->NXM_NX_REG0[16],write_actions(output:1),goto_table:1")
 
 	// Test ingressrule table flow with actset_output
 	actsetOutput4 := uint32(105)
 	flow4 := &Flow{
-		Table: ofApp.inputTable,
+		Table: ofActor.inputTable,
 		Match: FlowMatch{
 			Priority:     200,
 			Ethertype:    0x0800,
@@ -2338,7 +2050,7 @@ func TestWriteactionsFlows(t *testing.T) {
 	require.NoError(t, err)
 	flow4.ApplyActions([]OFAction{conjunction4})
 
-	verifyNewFlowInstallAndDelete(t, flow4, brName, ofApp.inputTable.TableId,
+	verifyNewFlowInstallAndDelete(t, flow4, brName, ofActor.inputTable.TableId,
 		"priority=200,actset_output=105,ip",
 		"conjunction(101,2/3)")
 

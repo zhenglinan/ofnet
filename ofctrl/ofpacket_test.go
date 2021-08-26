@@ -43,9 +43,7 @@ func TestPacketIn_PacketOut(t *testing.T) {
 	brName := "br4pkt"
 	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
@@ -62,9 +60,7 @@ func TestPacketIn_PacketOut_IPv6(t *testing.T) {
 	brName := "br4pktv6"
 	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
@@ -81,9 +77,7 @@ func TestNxOutputAndSendController(t *testing.T) {
 	brName := "br4sendcontroller"
 	ovsBr := prepareControllerAndSwitch(t, app.OfActor, ctrl, brName)
 	defer func() {
-		if err := ovsBr.DeleteBridge(brName); err != nil {
-			t.Errorf("Failed to delete br %s: %v", brName, err)
-		}
+		assert.Nilf(t, ovsBr.DeleteBridge(brName), "Failed to delete br %s", brName)
 		ctrl.Delete()
 	}()
 
