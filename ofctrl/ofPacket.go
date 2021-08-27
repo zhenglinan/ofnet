@@ -64,9 +64,8 @@ func (p *PacketOut) getEthernetHeader() *protocol.Ethernet {
 		case p.ICMPHeader != nil:
 			p.IPv6Header.NextHeader = protocol.Type_IPv6ICMP
 			p.IPv6Header.Data = p.ICMPHeader
-		default:
-			p.IPv6Header.NextHeader = 0xff
 		}
+		// Let application set IPv6Header.Data and IPv6Header.NextHeader for other IPv6 packets.
 		data = p.IPv6Header
 		ethType = protocol.IPv6_MSG
 	} else {
@@ -80,9 +79,8 @@ func (p *PacketOut) getEthernetHeader() *protocol.Ethernet {
 		case p.ICMPHeader != nil:
 			p.IPHeader.Protocol = protocol.Type_ICMP
 			p.IPHeader.Data = p.ICMPHeader
-		default:
-			p.IPHeader.Protocol = 0xff
 		}
+		// Let application set IPHeader.Data and IPHeader.Protocol for other IPv4 packets.
 		data = p.IPHeader
 		ethType = 0x0800
 	}
