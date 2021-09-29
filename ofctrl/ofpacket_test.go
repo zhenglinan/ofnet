@@ -223,7 +223,9 @@ func testPacketInOut(t *testing.T, ofApp *packetApp, brName string, ipv6 bool) {
 	if ipv6 {
 		assert.Equal(t, uint16(protocol.IPv6_MSG), pktIn.Data.Ethertype)
 		var ipv6Obj protocol.IPv6
-		assert.Nil(t, ipv6Obj.UnmarshalBinary(pktIn.Data.Data.(*util.Buffer).Bytes()))
+		ipv6Bytes, err := pktIn.Data.Data.(*protocol.IPv6).MarshalBinary()
+		assert.Nil(t, err)
+		assert.Nil(t, ipv6Obj.UnmarshalBinary(ipv6Bytes))
 		assert.Equal(t, srcIP, ipv6Obj.NWSrc)
 		assert.Equal(t, dstIP, ipv6Obj.NWDst)
 		assert.Equal(t, uint8(IP_PROTO_TCP), ipv6Obj.NextHeader)
