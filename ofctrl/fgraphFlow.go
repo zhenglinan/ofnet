@@ -443,7 +443,7 @@ func (self *Flow) xlateMatch() openflow13.Match {
 	}
 
 	// Handle ct_mark match
-	if self.Match.CtMark != 0 {
+	if self.Match.CtMark != 0 || self.Match.CtMarkMask != nil {
 		ctMarkField := openflow13.NewCTMarkMatchField(self.Match.CtMark, self.Match.CtMarkMask)
 		ofMatch.AddField(*ctMarkField)
 	}
