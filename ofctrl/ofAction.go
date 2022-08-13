@@ -906,4 +906,3 @@ func (a *NXDecapsulate) GetActionMessage() openflow15.Action {
 func (a *NXDecapsulate) GetActionType() string {
 	return ActTypeDecapsulate
 }
-
