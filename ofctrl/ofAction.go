@@ -884,7 +884,7 @@ func NewMeterAction(meterId uint32) *MeterAction {
 type NXEncapsulate struct {
 	HeaderSize uint16
 	HeaderType uint32
-	Property   []openflow15.PropTLV
+	Properties []openflow15.PropTLV
 }
 
 func (a *NXEncapsulate) GetActionMessage() openflow15.Action {
@@ -906,4 +906,3 @@ func (a *NXDecapsulate) GetActionMessage() openflow15.Action {
 func (a *NXDecapsulate) GetActionType() string {
 	return ActTypeDecapsulate
 }
-
